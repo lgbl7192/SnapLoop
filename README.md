@@ -16,7 +16,9 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | `Assets/Scripts/Video/VideoFeed.cs` | The single `VideoPlayer` writing into one shared `RenderTexture`. |
 | `Assets/Scripts/Levels/` | `levels.json` loader and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, haptics, generated sound effects. |
-| `Assets/Scripts/UI/` | Code-built uGUI screens (level select, HUD, win card, settings, onboarding, dev menu). |
+| `Assets/Scripts/UI/` | Code-built uGUI screens (level select, HUD, win card, settings, onboarding, dev menu). Shared look in `UI/Theme/`; see [UI look and screenshots](#ui-look-and-screenshots). |
+| `Assets/Resources/UI/UITheme.asset` | Design tokens: palette, gradients, fonts, type scale, spacing, radii, motion. |
+| `Assets/Art/` | Bundled OFL fonts (with their licences) and the app icon placeholder. |
 | `Assets/Scripts/Monetization/` | Ads (rewarded hints, interstitials on Next, level-select banner, the gating rules, test and LevelPlay adapters), consent and remote-config seams, and the Remove Ads purchase. See [Monetization](#monetization-ads-and-remove-ads). |
 | `Assets/Resources/Monetization/MonetizationConfig.asset` | Every ad and IAP id and every ad rule number. |
 | `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules (no Unity needed). |
@@ -70,6 +72,18 @@ Project-side settings are committed in `ProjectSettings/`: Snaploop name, portra
 - Levels unlock in order. Stars: 3, minus 1 if any hint was used, minus 1 if slower than par (6 s per piece). The minimum is 1.
 - Android back button: closes a dialog, otherwise returns to level select, otherwise sends the app to the background.
 - **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter. In the Editor and development builds it also has the monetization toggles listed under [Monetization](#monetization-ads-and-remove-ads).
+
+## UI look and screenshots
+
+The UI is a dark "midnight arcade" style with Snaploop's own golden-hour accent (gold to coral to pink) on the wordmark and loop mark. Orange is kept for the one next action (Play, Next); green with an AD badge only ever means a rewarded ad.
+
+- **Tokens**: `Assets/Resources/UI/UITheme.asset` (`UITheme.cs`). Edit colours, sizes and timings there; every screen reads it. Sizes are in dp (1 dp = 2.75 canvas units on the 1080-wide reference canvas).
+- **Fonts**: Lilita One (titles, numbers) and Nunito SemiBold/ExtraBold/Black (body, buttons, caps), both SIL Open Font License; licences sit next to the fonts in `Assets/Art/Fonts/`.
+- **Building blocks** (`UIFactory`): sticker buttons with a lip and press sink (`JuicyButton`, `RoundButton`), cards, chips, ribbons, stars, the progress ring and switches. Sprites (rounded 9-slices, soft shadows, icons, the backdrop lattice) are generated at runtime by `UISprites`, so there are no image assets to maintain.
+- **Motion** (`UIJuice`, `UIFx`): tweens, press springs and pulses run on unscaled time and allocate nothing per frame; snap bursts and win confetti come from a fixed particle pool.
+- **Safe area**: every screen sits inside a `SafeAreaFitter`; touch targets are at least 48 dp.
+
+**See every screen without Unity**: the **UI screenshots** workflow (`.github/workflows/ui-screenshots.yml`) runs on every push that touches `Assets/`, `Packages/` or `ProjectSettings/`, or by hand from the Actions tab. It builds a Linux development player, presses through onboarding, HUD, hint (rewarded test ad), settings, dev menu, win card, interstitial, level select (with and without the test banner) and the test store at 1080x2400 and 720x1600, and uploads the PNGs as the `ui-screenshots` artifact. The run uses the Unity seat, so it queues behind Android builds. The driver is `Assets/Scripts/Dev/UIScreenshotRunner.cs` (inert unless the player is started with `-snaploop-screenshots <dir>`); it finds buttons by GameObject name, so keep those names when you restyle a screen.
 
 ## Extension points (ads/IAP, clip capture)
 
