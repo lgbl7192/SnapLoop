@@ -45,6 +45,13 @@ namespace Snaploop.Core
         public Func<bool> IsVisible;
     }
 
+    /// <summary>An extra row in the dev menu. <see cref="Label"/> is re-read after every click.</summary>
+    public sealed class DevMenuEntry
+    {
+        public Func<string> Label;
+        public Action OnClick;
+    }
+
     sealed class FreeHintGate : IHintGate
     {
         public string ButtonLabel => "Hint";
@@ -88,6 +95,23 @@ namespace Snaploop.Core
         public static void AddSettingsEntry(string label, Action onClick, Func<bool> isVisible = null)
         {
             SettingsEntries.Add(new SettingsEntry { Label = label, OnClick = onClick, IsVisible = isVisible });
+        }
+
+        /// <summary>Raised by <see cref="NotifySettingsChanged"/>; an open Settings screen rebuilds its rows.</summary>
+        public static event Action SettingsChanged;
+
+        /// <summary>Call when a settings row's label or visibility changed outside a click (e.g. a purchase finished).</summary>
+        public static void NotifySettingsChanged() => SettingsChanged?.Invoke();
+
+        public static readonly List<DevMenuEntry> DevMenuEntries = new List<DevMenuEntry>();
+
+        /// <summary>
+        /// Adds a row to the dev menu. The dev menu also opens in release builds (wordmark taps),
+        /// so only register entries that are safe there, or guard with <c>Debug.isDebugBuild</c>.
+        /// </summary>
+        public static void AddDevMenuEntry(Func<string> label, Action onClick)
+        {
+            DevMenuEntries.Add(new DevMenuEntry { Label = label, OnClick = onClick });
         }
     }
 
