@@ -43,6 +43,7 @@ namespace Snaploop.Dev
             var go = new GameObject("UIScreenshotRunner");
             DontDestroyOnLoad(go);
             go.AddComponent<UIScreenshotRunner>().outDir = dir;
+            Application.logMessageReceived += ForwardExceptions;
         }
 
         IEnumerator Start()
@@ -53,20 +54,57 @@ namespace Snaploop.Dev
             BuildPhoneChrome();
 
             yield return Wait(0.3f);
-            yield return Shot("splash");
+            yield return Step("splash", Shot("splash"), 10f);
+            yield return Step("onboarding", Onboarding(), 40f);
+            yield return Step("hud", Hud(), 45f);
+            yield return Step("hint", Hint(), 40f);
+            yield return Step("settings", Settings(), 15f);
+            yield return Step("dev-menu", HudDevMenu(), 15f);
+            yield return Step("win", Win(), 60f);
+            yield return Step("level-select", LevelSelect(), 30f);
+            yield return Step("level-select-banner", Banner(), 20f);
+            yield return Step("dev-menu", HubDevMenu(), 15f);
+            yield return Step("store", Store(), 25f);
+            Finish(0);
+        }
 
-            // First launch: onboarding over the first puzzle.
+        PuzzleBoard board;
+        AdsService ads;
+        bool devShot;
+
+        /// <summary>
+        /// Runs one step in its own coroutine so an exception or a stall in it costs that shot only.
+        /// </summary>
+        IEnumerator Step(string name, IEnumerator body, float timeout)
+        {
+            bool done = false;
+            var co = StartCoroutine(Run(body, () => done = true));
+            float end = Time.realtimeSinceStartup + timeout;
+            while (!done && Time.realtimeSinceStartup < end) yield return null;
+            if (done) yield break;
+            if (co != null) StopCoroutine(co);
+            Skip(name + " (step failed or timed out; see exceptions above)");
+        }
+
+        static IEnumerator Run(IEnumerator body, Action onDone)
+        {
+            yield return body;
+            onDone();
+        }
+
+        IEnumerator Onboarding()
+        {
             yield return WaitFor(() => FindActive("Onboarding", "Canvas") != null, 25f);
-            if (waitOk)
-            {
-                yield return Wait(1.1f);
-                yield return Shot("onboarding");
-                Click("Go", "Onboarding");
-            }
-            else Skip("onboarding");
+            if (!waitOk) { Skip("onboarding"); yield break; }
+            yield return Wait(1.1f);
+            yield return Shot("onboarding");
+            Click("Go", "Onboarding");
+        }
 
-            var board = FindAnyObjectByType<PuzzleBoard>();
-            yield return WaitFor(() => board != null && board.IsPlaying, 30f);
+        IEnumerator Hud()
+        {
+            yield return WaitFor(() => (board = FindAnyObjectByType<PuzzleBoard>()) != null && board.IsPlaying, 30f);
+            if (!waitOk) { Skip("hud"); yield break; }
             yield return Wait(0.8f);
             for (int i = 0; i < 3 && board.IsPlaying; i++)
             {
@@ -75,70 +113,71 @@ namespace Snaploop.Dev
             }
             yield return Wait(1.2f);
             yield return Shot("hud");
+        }
 
-            // Hint: rewarded test ad, then the hint piece flying home.
+        // Hint: rewarded test ad, then the hint piece flying home.
+        IEnumerator Hint()
+        {
             yield return WaitFor(() => FindButton("Hint", "Hud") != null, 12f);
-            if (Click("Hint", "Hud"))
+            if (!Click("Hint", "Hud")) { Skip("hint"); yield break; }
+            yield return WaitFor(() => FindActive("TestAd") != null, 4f);
+            if (waitOk)
             {
-                yield return WaitFor(() => FindActive("TestAd") != null, 4f);
-                if (waitOk)
-                {
-                    yield return Wait(1.2f);
-                    yield return Shot("ad-rewarded");
-                    yield return WaitFor(() => FindButton("Claim", "TestAd") != null, 12f);
-                    Click("Claim", "TestAd");
-                }
-                yield return Wait(0.2f);
-                yield return Shot("hint");
-                yield return Wait(1f);
+                yield return Wait(1.2f);
+                yield return Shot("ad-rewarded");
+                yield return WaitFor(() => FindButton("Claim", "TestAd") != null, 12f);
+                Click("Claim", "TestAd");
             }
-            else Skip("hint");
+            yield return Wait(0.2f);
+            yield return Shot("hint");
+            yield return Wait(1f);
+        }
 
-            if (Click("Settings", "Hud"))
-            {
-                yield return Wait(0.6f);
-                yield return Shot("settings");
-                Click("Close", "Settings");
-                yield return Wait(0.3f);
-            }
-            else Skip("settings");
+        IEnumerator Settings()
+        {
+            if (!Click("Settings", "Hud")) { Skip("settings"); yield break; }
+            yield return Wait(0.6f);
+            yield return Shot("settings");
+            Click("Close", "Settings");
+            yield return Wait(0.3f);
+        }
 
-            bool devShot = false;
-            if (Click("Dev", "Hud"))
-            {
-                yield return Wait(0.6f);
-                yield return Shot("dev-menu");
-                devShot = true;
-                Click("Close", "DevMenu");
-                yield return Wait(0.3f);
-            }
+        IEnumerator HudDevMenu()
+        {
+            if (!Click("Dev", "Hud")) yield break;
+            yield return Wait(0.6f);
+            yield return Shot("dev-menu");
+            devShot = true;
+            Click("Close", "DevMenu");
+            yield return Wait(0.3f);
+        }
 
-            // Finish with hints so the win card shows real stats, and force the next interstitial.
-            var ads = MonetizationRuntime.Instance != null ? MonetizationRuntime.Instance.Ads : null;
+        // Finish with hints so the win card shows real stats, and force the next interstitial.
+        IEnumerator Win()
+        {
+            ads = MonetizationRuntime.Instance != null ? MonetizationRuntime.Instance.Ads : null;
             if (ads != null) ads.ForceNextInterstitial = true;
-            for (int guard = 0; guard < 80 && board.IsPlaying; guard++)
+            if (board == null) board = FindAnyObjectByType<PuzzleBoard>();
+            for (int guard = 0; guard < 80 && board != null && board.IsPlaying; guard++)
             {
                 board.ApplyHint();
                 yield return Wait(0.1f);
             }
             yield return WaitFor(() => FindActive("Win", "SafeArea") != null, 20f);
-            if (waitOk)
-            {
-                yield return Wait(1.6f);
-                yield return Shot("win");
-                Click("Next", "Win");
-                yield return WaitFor(() => FindActive("TestAd") != null, 6f);
-                if (waitOk)
-                {
-                    yield return Wait(2.6f);
-                    yield return Shot("ad-interstitial");
-                    Click("Close", "TestAd");
-                }
-                else Skip("ad-interstitial");
-            }
-            else Skip("win");
+            if (!waitOk) { Skip("win"); yield break; }
+            yield return Wait(1.6f);
+            yield return Shot("win");
+            Click("Next", "Win");
+            yield return WaitFor(() => FindActive("TestAd") != null, 6f);
+            if (!waitOk) { Skip("ad-interstitial"); yield break; }
+            yield return Wait(2.6f);
+            yield return Shot("ad-interstitial");
+            Click("Close", "TestAd");
+        }
 
-            // A few cleared levels so the hub shows stars and the next-up state.
+        // A few cleared levels so the hub shows stars and the next-up state.
+        IEnumerator LevelSelect()
+        {
             var levels = LevelCatalog.Levels;
             if (levels.Count > 3)
             {
@@ -149,55 +188,50 @@ namespace Snaploop.Dev
             yield return Wait(0.5f);
             Click("Back", "Hud");
             yield return WaitFor(() => FindActive("LevelSelect", "SafeArea") != null, 10f);
+            if (!waitOk) { Skip("level-select"); yield break; }
             yield return Wait(2.5f);
             yield return Shot("level-select");
+        }
 
-            if (ads != null)
+        IEnumerator Banner()
+        {
+            if (ads == null) { Skip("level-select-banner"); yield break; }
+            ads.DevSkipGrace();
+            yield return WaitFor(() => FindActive("TestBanner") != null, 8f);
+            if (!waitOk) { Skip("level-select-banner"); yield break; }
+            yield return Wait(0.6f);
+            yield return Shot("level-select-banner");
+        }
+
+        IEnumerator HubDevMenu()
+        {
+            if (devShot) yield break;
+            if (!Click("Dev", "LevelSelect") && !Click("Dev", "Header")) { Skip("dev-menu"); yield break; }
+            yield return Wait(0.6f);
+            yield return Shot("dev-menu");
+            Click("Close", "DevMenu");
+            yield return Wait(0.3f);
+        }
+
+        // Remove Ads in Settings opens the test store.
+        IEnumerator Store()
+        {
+            if (!Click("Settings", "LevelSelect") && !Click("Settings", "Header")) { Skip("store"); yield break; }
+            yield return Wait(0.5f);
+            if (ClickLabel("Remove Ads", "Settings"))
             {
-                ads.DevSkipGrace();
-                yield return WaitFor(() => FindActive("TestBanner") != null, 8f);
+                yield return WaitFor(() => FindActive("TestStore") != null, 8f);
                 if (waitOk)
                 {
                     yield return Wait(0.6f);
-                    yield return Shot("level-select-banner");
-                }
-                else Skip("level-select-banner");
-            }
-
-            if (!devShot)
-            {
-                if (Click("Dev", "LevelSelect") || Click("Dev", "Header"))
-                {
-                    yield return Wait(0.6f);
-                    yield return Shot("dev-menu");
-                    Click("Close", "DevMenu");
-                    yield return Wait(0.3f);
-                }
-                else Skip("dev-menu");
-            }
-
-            // Remove Ads in Settings opens the test store.
-            if (Click("Settings", "LevelSelect") || Click("Settings", "Header"))
-            {
-                yield return Wait(0.5f);
-                if (ClickLabel("Remove Ads", "Settings"))
-                {
-                    yield return WaitFor(() => FindActive("TestStore") != null, 8f);
-                    if (waitOk)
-                    {
-                        yield return Wait(0.6f);
-                        yield return Shot("store");
-                        Click("Cancel", "TestStore");
-                    }
-                    else Skip("store");
+                    yield return Shot("store");
+                    Click("Cancel", "TestStore");
                 }
                 else Skip("store");
-                yield return Wait(0.5f);
-                Click("Close", "Settings");
             }
             else Skip("store");
-
-            Finish(0);
+            yield return Wait(0.5f);
+            Click("Close", "Settings");
         }
 
         // ------------------------------------------------------------ steps
@@ -246,6 +280,12 @@ namespace Snaploop.Dev
             yield return Wait(WatchdogSec);
             Debug.LogError("[Screenshots] watchdog: giving up after " + WatchdogSec + " s");
             Finish(2);
+        }
+
+        static void ForwardExceptions(string condition, string stackTrace, LogType type)
+        {
+            if (type == LogType.Exception && !condition.StartsWith("[Screenshots]", StringComparison.Ordinal))
+                Console.WriteLine("[Screenshots] exception: " + condition + "\n" + stackTrace);
         }
 
         void Skip(string shot)
@@ -298,7 +338,13 @@ namespace Snaploop.Dev
                 Debug.Log("[Screenshots] no button " + ancestor + "/" + name);
                 return false;
             }
-            b.onClick.Invoke();
+            return Press(b, ancestor + "/" + name);
+        }
+
+        static bool Press(Button b, string what)
+        {
+            try { b.onClick.Invoke(); }
+            catch (Exception e) { Debug.LogError("[Screenshots] " + what + " threw: " + e); }
             return true;
         }
 
@@ -309,10 +355,7 @@ namespace Snaploop.Dev
                 if (!b.isActiveAndEnabled || !b.interactable || !HasAncestor(b.transform, ancestor, false)) continue;
                 var label = b.GetComponentInChildren<Text>();
                 if (label != null && label.text.StartsWith(labelPrefix, StringComparison.Ordinal))
-                {
-                    b.onClick.Invoke();
-                    return true;
-                }
+                    return Press(b, ancestor + "/" + labelPrefix);
             }
             Debug.Log("[Screenshots] no button labelled " + labelPrefix);
             return false;

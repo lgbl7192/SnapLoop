@@ -137,11 +137,12 @@ jobs:
             # Fresh HOME per run: first-launch state (onboarding, ad grace) every time.
             fresh_home=$(mktemp -d)
             echo "::group::Player $size"
+            # The player switches to its own folder, so the log path must be absolute.
             HOME="$fresh_home" timeout 480 xvfb-run -a -s "-screen 0 ${w}x${h}x24" "$EXE" \
               -screen-fullscreen 0 -screen-width "$w" -screen-height "$h" -force-glcore \
-              -logFile "logs/player-$size.log" -snaploop-screenshots "$out" -snaploop-size "$size" \
+              -logFile "$PWD/logs/player-$size.log" -snaploop-screenshots "$out" -snaploop-size "$size" \
               || echo "::warning::Player exited with status $? at $size (see logs/player-$size.log)"
-            grep '\[Screenshots\]' "logs/player-$size.log" || true
+            grep -A6 -E '\[Screenshots\]|Exception' "logs/player-$size.log" || true
             echo "::endgroup::"
           done
           count=$(find screenshots -name '*.png' | wc -l)
