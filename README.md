@@ -4,6 +4,7 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 
 - Unity **6000.0.85f2** (Unity 6 LTS), built-in render pipeline, Android only, portrait.
 - Product name, Android app label and in-app splash: **Snaploop**. Package id `com.snaploop.game` is a placeholder; change it before the first store upload.
+- Clips are in Git LFS: run `git lfs install` before cloning (or `git lfs pull` afterwards).
 
 ## Project layout
 
@@ -90,7 +91,7 @@ Where ad and IAP IDs go is documented by the monetization work.
 
 - **Not yet run in Unity.** The code compiles against Unity 6000.0.85f2's assemblies (player and editor) and the jigsaw geometry is unit-checked, but the project has not been opened in the Editor, played, or built to a device. That needs a Unity license; see [docs/BUILD.md](docs/BUILD.md).
 - Video from `StreamingAssets` inside the APK depends on Unity's VideoPlayer reading the `jar:` URL. Unity supports this, but it hasn't been confirmed on a device yet. If a clip fails, the puzzle still runs on a placeholder texture and shows a toast.
-- The three bundled clips (`sunset-shore`, `beach-waves`, `neon-street`, from Pexels) are placeholders until the real 30-level set lands.
+- Level clips are stored in Git LFS. Run `git lfs install` before cloning; otherwise the `.mp4` files are small pointer files and every level falls back to the placeholder texture. The footage pipeline (sourcing, encoding, credits) is described in [tools/footage/README.md](tools/footage/README.md).
 - No piece rotation; pieces only translate. Layout is computed when a level starts, so resizing mid-puzzle (foldables, split screen) is not handled.
 - Sound effects are synthesized at startup. There's no music, and clips have no audio.
 - UI text uses Unity's built-in LegacyRuntime font (no TextMeshPro assets).
