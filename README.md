@@ -19,6 +19,7 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, and `levels.json`. |
 | `Assets/Editor/Snaploop/` | Editor menu: **Snaploop > Apply Player Settings / Validate Levels / Open Main Scene**. |
+| `Assets/Scripts/Capture/`, `Assets/Plugins/Android/SnaploopCapture/` | Win clip capture: offscreen replay renderer and the Android encoder/share plugin. See [Vertical clip capture](#vertical-clip-capture-win-clips). |
 | `Assets/Editor/Build/`, `.github/workflows/` | Build pipeline (see [docs/BUILD.md](docs/BUILD.md)). |
 
 ## Add a video level
@@ -85,6 +86,43 @@ Where ad and IAP IDs go is documented by the monetization work.
 - All pieces are one mesh with one material: one draw call for pieces, plus one for the board and one for the reveal quad. Moving a piece rewrites its slice of a persistent vertex array, uploaded at most once per frame.
 - No per-frame allocations in the gameplay loop. Progress strings are cached, and events are only raised on state changes.
 - Targets 60 fps; the screen stays awake while the app is open.
+
+## Vertical clip capture (win clips)
+
+After a win, Snaploop can export a 9:16 MP4 of the puzzle: the scrambled pieces fly into place one by one over the moving scene, the full clip is revealed with a "Solved!" caption, and a short Snaploop end card closes it.
+
+- **Format:** 720x1280, 30 fps, H.264 (about 6 Mbps), no audio. About 10 s long (about 9.9 s at 9 pieces, 10.6 s at 36).
+- **When it runs:** with **Settings > Win clips: Auto** (the default on devices with 3 GB of RAM or more), rendering starts in the background once the reveal finishes. The win card's **Share clip** button then saves it to the gallery (`Movies/Snaploop`) and opens the Android share sheet. With **Win clips: When sharing**, nothing is rendered until the player taps Share clip. A small status pill shows progress ("Making your clip 40%").
+- **Cancelled, never blocking:** starting a puzzle, tapping Next, leaving the puzzle or backgrounding the app cancels a running clip and deletes the partial file. Any error just shows "Couldn't make the clip". The game itself is unaffected.
+
+### How it works
+
+The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `IShareProvider` installed before the first scene loads) builds a `ClipJob` from the win's `PuzzleResult`:
+
+1. `ClipScene` rebuilds the same jigsaw cut as the game (same `JigsawShape` seed, triangulation and `Snaploop/VideoPiece` shader) in a 720x1280 layout. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
+2. `ClipVideoSource` opens the level's clip in a second, paused `VideoPlayer` and steps it one frame per output frame, so the moving picture in the clip is smooth however slow encoding is. If stepping isn't supported or stalls, it falls back to the game's live video texture.
+3. Frames are read back with `AsyncGPUReadback` (falling back to `ReadPixels`) and handed to a sink:
+   - **Android:** `ClipEncoder.java` uploads each RGBA frame as a texture to a private EGL context whose surface is the input of a hardware `MediaCodec` H.264 encoder, then muxes with `MediaMuxer`. The frame buffer goes from C# to Java as a direct `ByteBuffer`, with no copy into the Java heap.
+   - **Editor:** a PNG sequence in `Recordings/Snaploop/<level>-<time>/` (gitignored). The console prints the `ffmpeg` command that turns it into an MP4, and the folder opens in Finder/Explorer.
+4. `ClipShare.java` copies the finished MP4 into the gallery and opens the share sheet with a `content://` URI.
+   - On Android 10 and later it uses MediaStore with no permission.
+   - On Android 7-9 it asks for the storage permission first. The manifest entry (`WRITE_EXTERNAL_STORAGE`, `maxSdkVersion` 28) is added at build time by `Assets/Editor/Snaploop/ClipCaptureAndroidPostprocess.cs`, which also adds a Proguard keep rule for the plugin.
+
+### Why this approach
+
+- **Free and small:** two Java files that use only Android framework APIs (MediaCodec, MediaMuxer, EGL, MediaStore). No paid assets, no extra Gradle dependencies, nothing that needs updating with Unity.
+- **Safe for gameplay:** the replay only exists after a win, renders at most 2 frames per game frame into its own render texture, and the encoder runs on its own thread. A bounded pool of 3 frame buffers stops a slow encoder from building up memory. Every step is wrapped so a failure cancels the clip instead of the puzzle.
+- **Better clips than recording the screen:** the output is always a clean 9:16 720x1280 with no UI, toasts or fingers, it doesn't depend on the phone's screen size, and it can be rendered later from the Share button.
+- **Robust on mid-range phones:** Surface input avoids the vendor-specific YUV colour formats that make `ByteBuffer` input fragile. If a device's encoder rejects 720x1280 at 30 fps, it steps down to 576x1024, 540x960 or 480x848. Uploading frames through GLES2 works the same whether Unity runs on Vulkan or GLES3.
+
+### Clip capture known limitations
+
+- **Not yet run inside the game.** The C# side compiles against Unity 6000.0.85f2 but has not run in the Editor or on a device. The Java plugin was tested on its own on Android emulators (see the PR): encoding, gallery saving, the share sheet and cancelling work there. Still to check on a real phone: the replay's look, `VideoPlayer` frame stepping on Android, the readback orientation probe, and whether running a second video decoder next to the encoder fits on low-end chips.
+- The replay is a stylised re-creation of the solve, not the player's actual moves or timing.
+- No audio track.
+- Android 7-9 needs the storage permission. If the player denies it, the clip isn't saved or shared.
+- In the share sheet the file shows by its MediaStore number rather than a file name. This is cosmetic.
+- If frame stepping falls back to the live video, the motion inside the clip follows real time and may look sped up or jumpy when encoding is slow.
 
 ## Known limitations
 
