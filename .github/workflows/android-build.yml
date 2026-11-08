@@ -103,8 +103,6 @@ jobs:
       # The Unity Android image is large; the default runner disk is too small without this.
       - name: Free disk space
         uses: jlumbroso/free-disk-space@v2.0.0
-        with:
-          tool-cache: false
 
       - uses: actions/checkout@v7
         with:
