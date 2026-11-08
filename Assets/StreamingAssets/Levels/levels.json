@@ -1,0 +1,40 @@
+{
+  "levels": [
+    {
+      "id": "sunset-shore",
+      "title": "Sunset Shore",
+      "file": "sunset-shore.mp4",
+      "cols": 3,
+      "rows": 3,
+      "durationSec": 8.0,
+      "category": "sunsets",
+      "credit": "Trippy Clicker / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vertical-video-of-sunset-7975481/",
+      "license": "Pexels License"
+    },
+    {
+      "id": "beach-waves",
+      "title": "Beach Waves",
+      "file": "beach-waves.mp4",
+      "cols": 3,
+      "rows": 5,
+      "durationSec": 8.0,
+      "category": "nature",
+      "credit": "Yağmur Berberoğlu / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/serene-beach-waves-at-sunset-30185638/",
+      "license": "Pexels License"
+    },
+    {
+      "id": "neon-street",
+      "title": "Neon Street",
+      "file": "neon-street.mp4",
+      "cols": 4,
+      "rows": 7,
+      "durationSec": 8.0,
+      "category": "crowds",
+      "credit": "Cheng / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-busy-street-with-many-people-walking-and-cars-18662590/",
+      "license": "Pexels License"
+    }
+  ]
+}
