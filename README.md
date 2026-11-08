@@ -1,6 +1,6 @@
 # Snaploop
 
-Android-first video jigsaw built in Unity. Every piece is a live window onto one looping clip: drag the pieces into place, they snap together, and the finished puzzle plays the full uncut loop.
+Android-first video puzzle built in Unity. Every tile is a live window onto one looping clip: drag the tiles into place, correct neighbours join into one shape, and the finished puzzle plays the full uncut loop.
 
 - Unity **6000.0.85f2** (Unity 6 LTS), built-in render pipeline, Android only, portrait.
 - Product name, Android app label and in-app splash: **Snaploop**. Package id `com.snaploop.game` is a placeholder; change it before the first store upload.
@@ -12,12 +12,13 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | --- | --- |
 | `Assets/Scenes/Main.unity` | The only scene: a camera and the `SnaploopApp` component. All UI is built in code. |
 | `Assets/Scripts/App/SnaploopApp.cs` | Composition root and screen flow (splash, level select, puzzle, win, next). |
-| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (drag, snap, magnetism, scramble, hint, reveal), `JigsawShape` (tab outlines), `Triangulator`. |
+| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (free drag, snap, magnetism, scramble, hint, reveal), `TileBatch` (all tiles as one mesh), `TileGroups` (which tiles are joined). `JigsawShape` and `Triangulator` are the older tab-shaped cut, kept for reuse. |
 | `Assets/Scripts/Video/VideoFeed.cs` | The single `VideoPlayer` writing into one shared `RenderTexture`. |
 | `Assets/Scripts/Levels/` | `levels.json` loader and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, haptics, generated sound effects. |
 | `Assets/Scripts/UI/` | Code-built uGUI screens (level select, HUD, win card, settings, onboarding, dev menu). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
+| `Assets/Resources/Shaders/SnaploopVideoTile.shader` | The puzzle's tile shader: rounded tiles, gaps and outlines drawn per pixel from edge flags, so a joined group shows one outer outline. `SnaploopVideoPiece` above is the older jigsaw-piece shader. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, and `levels.json`. |
 | `Assets/Editor/Snaploop/` | Editor menu: **Snaploop > Apply Player Settings / Validate Levels / Open Main Scene**. |
 | `Assets/Editor/Build/`, `.github/workflows/` | Build pipeline (see [docs/BUILD.md](docs/BUILD.md)). |
@@ -83,7 +84,7 @@ Where ad and IAP IDs go is documented by the monetization work.
 ## Performance notes
 
 - One video decoder per puzzle, whatever the piece count. All pieces sample the same `RenderTexture` by UV.
-- All pieces are one mesh with one material: one draw call for pieces, plus one for the board and one for the reveal quad. Moving a piece rewrites its slice of a persistent vertex array, uploaded at most once per frame.
+- All tiles are one mesh with one material: one draw call for tiles, plus one for the board slots and one for the reveal quad. Moving a group rewrites its tiles' slice of a persistent vertex array, uploaded at most once per frame; stacking order is an index-buffer rewrite on pick-up and drop only.
 - No per-frame allocations in the gameplay loop. Progress strings are cached, and events are only raised on state changes.
 - Targets 60 fps; the screen stays awake while the app is open.
 
