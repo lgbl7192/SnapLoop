@@ -44,6 +44,9 @@ namespace Snaploop.Dev
             DontDestroyOnLoad(go);
             go.AddComponent<UIScreenshotRunner>().outDir = dir;
             Application.logMessageReceived += ForwardExceptions;
+            // CI has no audio device; FMOD's errors would otherwise pop the console over every shot.
+            Debug.developerConsoleEnabled = false;
+            Debug.developerConsoleVisible = false;
         }
 
         IEnumerator Start()
