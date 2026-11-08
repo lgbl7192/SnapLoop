@@ -1,0 +1,131 @@
+{
+  "defaults": {
+    "durationSec": 10.0,
+    "fadeSec": 1.0,
+    "cropX": 0.5,
+    "license": "Pexels License",
+    "licenseUrl": "https://www.pexels.com/license/"
+  },
+  "levels": [
+    { "id": "shoreline-sunset", "title": "Shoreline Sunset", "category": "sunsets", "cols": 3, "rows": 3,
+      "pexelsId": 7975481, "credit": "Trippy Clicker / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vertical-video-of-sunset-7975481/", "startSec": 0.5 },
+
+    { "id": "field-dog", "title": "Field Dog", "category": "everyday", "cols": 3, "rows": 3,
+      "pexelsId": 34688823, "credit": "Michal Petráš / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/energetic-blue-merle-border-collie-outdoors-34688823/", "startSec": 0.2 },
+
+    { "id": "red-tram-square", "title": "Red Tram Square", "category": "downtown", "cols": 3, "rows": 3,
+      "pexelsId": 34900845, "credit": "Airam Dato-on / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/historic-tram-crossing-prague-s-iconic-street-34900845/", "startSec": 4.0 },
+
+    { "id": "forest-falls", "title": "Forest Falls", "category": "nature", "cols": 3, "rows": 4,
+      "pexelsId": 12110531, "credit": "Vera Silkina / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/waterfall-in-forest-12110531/", "startSec": 1.0 },
+
+    { "id": "drumline-parade", "title": "Drumline Parade", "category": "crowds", "cols": 3, "rows": 4,
+      "pexelsId": 36189534, "credit": "Angel Rkaoz / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vibrant-street-parade-with-drummers-and-stilt-walker-36189534/", "startSec": 5.0 },
+
+    { "id": "pour-over", "title": "Pour-Over", "category": "everyday", "cols": 3, "rows": 4,
+      "pexelsId": 30285474, "credit": "Victor Silva / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/barista-pouring-over-coffee-with-precision-30285474/", "startSec": 2.0 },
+
+    { "id": "low-tide-silhouettes", "title": "Low Tide Silhouettes", "category": "sunsets", "cols": 4, "rows": 4,
+      "pexelsId": 10491363, "credit": "Peggy Anke / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/silhouettes-of-people-walking-on-the-beach-at-sunset-10491363/", "startSec": 1.0 },
+
+    { "id": "double-decker-tram", "title": "Double-Decker Tram", "category": "downtown", "cols": 4, "rows": 4,
+      "pexelsId": 30295427, "credit": "David Lomax / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/bustling-city-street-with-double-decker-tram-30295427/", "startSec": 14.0 },
+
+    { "id": "alpine-grazer", "title": "Alpine Grazer", "category": "nature", "cols": 4, "rows": 4,
+      "pexelsId": 31629794, "credit": "Fazakas Iozsef / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/horse-grazing-in-alpine-meadow-31629794/", "startSec": 3.0 },
+
+    { "id": "festival-dancers", "title": "Festival Dancers", "category": "crowds", "cols": 4, "rows": 4,
+      "pexelsId": 36627856, "credit": "Ranjit Patel / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/traditional-indian-festival-dance-celebration-36627856/", "startSec": 0.8 },
+
+    { "id": "golden-line", "title": "Golden Line", "category": "sunsets", "cols": 4, "rows": 5,
+      "pexelsId": 11554073, "credit": "Kübra Aslan / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vertical-video-of-golden-sky-11554073/", "startSec": 2.0 },
+
+    { "id": "night-food-truck", "title": "Night Food Truck", "category": "everyday", "cols": 4, "rows": 5,
+      "pexelsId": 28370858, "credit": "Kuiyibo Campos / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-man-cooking-food-in-a-food-truck-at-night-28370858/", "startSec": 1.5 },
+
+    { "id": "wet-night-boulevard", "title": "Wet Night Boulevard", "category": "downtown", "cols": 4, "rows": 5,
+      "pexelsId": 35996432, "credit": "mohcen cherifi / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/downtown-night-scene-with-bus-and-traffic-35996432/", "startSec": 0.3 },
+
+    { "id": "surf-and-stone", "title": "Surf and Stone", "category": "nature", "cols": 4, "rows": 5,
+      "pexelsId": 8448345, "credit": "Ruvim M / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/waves-crashing-the-rock-formation-8448345/", "startSec": 2.0 },
+
+    { "id": "beach-day-above", "title": "Beach Day From Above", "category": "crowds", "cols": 5, "rows": 5,
+      "pexelsId": 31110734, "credit": "Roong Thongwichien / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/aerial-view-of-people-enjoying-a-sunny-beach-day-31110734/", "startSec": 8.0 },
+
+    { "id": "laundry-day", "title": "Laundry Day", "category": "everyday", "cols": 5, "rows": 5,
+      "pexelsId": 6841998, "credit": "Teona Swift / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/laundry-hanging-on-a-clothesline-to-dry-6841998/",
+      "startSec": 0.1, "durationSec": 9.4 },
+
+    { "id": "pink-hour-boats", "title": "Pink Hour Boats", "category": "sunsets", "cols": 5, "rows": 5,
+      "pexelsId": 35701238, "credit": "Thanzeena Husain / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/serene-boat-ride-on-peaceful-lake-at-sunset-35701238/", "startSec": 2.0 },
+
+    { "id": "red-light-trails", "title": "Red Light Trails", "category": "downtown", "cols": 5, "rows": 5,
+      "pexelsId": 30432353, "credit": "Evgenij Mikhailov / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/nighttime-city-street-with-light-trails-30432353/", "startSec": 2.0 },
+
+    { "id": "reef-school", "title": "Reef School", "category": "nature", "cols": 5, "rows": 6,
+      "pexelsId": 34101489, "credit": "NEEMA GREEN ENERGY / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vibrant-underwater-school-of-fish-in-coral-reef-34101489/", "startSec": 36.0 },
+
+    { "id": "main-street-rush", "title": "Main Street Rush", "category": "crowds", "cols": 5, "rows": 6,
+      "pexelsId": 12699538, "credit": "Yura Forrat / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/crowd-of-people-walking-in-a-city-street-12699538/", "startSec": 0.5 },
+
+    { "id": "hanoi-wok-stall", "title": "Hanoi Wok Stall", "category": "everyday", "cols": 5, "rows": 6,
+      "pexelsId": 32228864, "credit": "Nimit N / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/authentic-hanoi-street-food-cooking-in-action-32228864/", "startSec": 6.0 },
+
+    { "id": "city-at-dusk", "title": "City at Dusk", "category": "sunsets", "cols": 5, "rows": 6,
+      "pexelsId": 31014957, "credit": "Israyosoy S. / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/aerial-view-of-mexico-city-at-sunset-31014957/", "startSec": 5.0 },
+
+    { "id": "glass-towers", "title": "Glass Towers", "category": "downtown", "cols": 5, "rows": 6,
+      "pexelsId": 28775876, "credit": "Israyosoy S. / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/dynamic-night-traffic-in-mexico-city-28775876/", "startSec": 7.0 },
+
+    { "id": "wildflower-breeze", "title": "Wildflower Breeze", "category": "nature", "cols": 5, "rows": 6,
+      "pexelsId": 8364738, "credit": "Dave Clarke / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/colorful-flowers-swaying-in-the-wind-8364738/", "startSec": 8.0 },
+
+    { "id": "bazaar-street", "title": "Bazaar Street", "category": "crowds", "cols": 6, "rows": 6,
+      "pexelsId": 36463403, "credit": "Sururi Ballıdağ / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/bustling-marketplace-scene-with-diverse-crowd-36463403/", "startSec": 3.0 },
+
+    { "id": "rainy-window", "title": "Rainy Window", "category": "everyday", "cols": 6, "rows": 6,
+      "pexelsId": 19967985, "credit": "Christian Lie / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/raindrops-on-window-19967985/", "startSec": 2.0 },
+
+    { "id": "sunset-strollers", "title": "Sunset Strollers", "category": "sunsets", "cols": 6, "rows": 6,
+      "pexelsId": 11274608, "credit": "Dronepilot Chile / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/silhouettes-of-people-on-beach-during-sunset-11274608/", "startSec": 2.0 },
+
+    { "id": "zebra-crossing", "title": "Zebra Crossing", "category": "downtown", "cols": 6, "rows": 6,
+      "pexelsId": 30935166, "credit": "Usman AbdulrasheedGambo / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/aerial-view-of-urban-pedestrian-crossing-30935166/", "startSec": 3.0 },
+
+    { "id": "peak-clouds", "title": "Peak Clouds", "category": "nature", "cols": 6, "rows": 6,
+      "pexelsId": 8062898, "credit": "Yaroslav Shuraev / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/clouds-moving-over-mountains-8062898/", "startSec": 3.0, "cropX": 0.6 },
+
+    { "id": "concourse-rush", "title": "Concourse Rush", "category": "crowds", "cols": 6, "rows": 6,
+      "pexelsId": 29844136, "credit": "David Lomax / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/busy-subway-station-with-commuters-29844136/", "startSec": 5.0 }
+  ]
+}
