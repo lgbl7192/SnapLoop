@@ -4,6 +4,7 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 
 - Unity **6000.0.85f2** (Unity 6 LTS), built-in render pipeline, Android only, portrait.
 - Product name, Android app label and in-app splash: **Snaploop**. Package id `com.snaploop.game` is a placeholder; change it before the first store upload.
+- Clips are in Git LFS: run `git lfs install` before cloning (or `git lfs pull` afterwards).
 
 ## Project layout
 
@@ -16,6 +17,9 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | `Assets/Scripts/Levels/` | `levels.json` loader and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, haptics, generated sound effects. |
 | `Assets/Scripts/UI/` | Code-built uGUI screens (level select, HUD, win card, settings, onboarding, dev menu). |
+| `Assets/Scripts/Monetization/` | Ads (rewarded hints, interstitials on Next, level-select banner, the gating rules, test and LevelPlay adapters), consent and remote-config seams, and the Remove Ads purchase. See [Monetization](#monetization-ads-and-remove-ads). |
+| `Assets/Resources/Monetization/MonetizationConfig.asset` | Every ad and IAP id and every ad rule number. |
+| `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules (no Unity needed). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, and `levels.json`. |
 | `Assets/Editor/Snaploop/` | Editor menu: **Snaploop > Apply Player Settings / Validate Levels / Open Main Scene**. |
@@ -65,20 +69,149 @@ Project-side settings are committed in `ProjectSettings/`: Snaploop name, portra
 - First launch goes straight into level 1 with a one-screen onboarding ("Assemble the moving picture").
 - Levels unlock in order. Stars: 3, minus 1 if any hint was used, minus 1 if slower than par (6 s per piece). The minimum is 1.
 - Android back button: closes a dialog, otherwise returns to level select, otherwise sends the app to the background.
-- **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter.
+- **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter. In the Editor and development builds it also has the monetization toggles listed under [Monetization](#monetization-ads-and-remove-ads).
 
 ## Extension points (ads/IAP, clip capture)
 
 Gameplay code never calls ads or capture directly. Follow-up systems hook in from a `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]` method:
 
 - `Snaploop.Core.GameEvents`: `PuzzleStarted`, `PuzzlePlayable`, `PieceSnapped`, `HintUsed`, `PuzzleCompleted`, `RevealStarted`, `RevealFinished`, `NextRequested`, `PuzzleAbandoned`.
-- `GameServices.Hints` (`IHintGate`): the hint button calls `RequestHint(onResult)`. The default grants every hint for free. A rewarded-ad gate replaces it and can relabel the button through `ButtonLabel`.
+- `GameServices.Hints` (`IHintGate`): the hint button calls `RequestHint(onResult)`. The default grants every hint for free. A rewarded-ad gate replaces it and sets the button's `ButtonLabel`, whether it is shown at all (`IsOffered`; a hint that isn't on offer is hidden, not greyed out) and whether it gets the rewarded look (`IsRewardedAd`: green with an AD badge, from `UIFactory.SetRewardedLook`). Call `GameServices.NotifyHintOfferChanged()` when any of these change.
 - `GameServices.BetweenPuzzles` (`IBetweenPuzzlesGate`): runs when the player taps **Next** on the win card, before the next level loads. This is the only interstitial slot; it is never invoked mid-puzzle.
 - `GameServices.Share` (`IShareProvider`): when it is set and `IsAvailable`, the win card shows a Share button.
-- `GameServices.AddSettingsEntry(label, onClick, isVisible)`: adds rows such as "Remove Ads" or "Restore Purchases" to Settings.
-- `GameContext`: the board camera, the `VideoPlayer`, the shared video texture, the board's screen rect, and `IsPuzzleInProgress`, for capture code.
+- `GameServices.AddSettingsEntry(label, onClick, isVisible)`: adds rows such as "Remove Ads" or "Restore Purchases" to Settings. `GameServices.NotifySettingsChanged()` refreshes an open Settings screen.
+- `GameServices.AddDevMenuEntry(label, onClick)`: adds a row to the dev menu. The dev menu also opens in release builds, so guard debug-only entries with `Debug.isDebugBuild`.
+- `GameServices.SetLevelSelectBottomInset(screenPixels)`: reserves space at the bottom of level select (for a loaded banner); the level grid shrinks to stay clear of it. 0 gives the space back.
+- `GameContext`: the board camera, the `VideoPlayer`, the shared video texture, the board's screen rect, `IsPuzzleInProgress`, and `IsLevelSelectVisible` (changes raise `GameEvents.LevelSelectVisibilityChanged`).
 
-Where ad and IAP IDs go is documented by the monetization work.
+## Monetization (ads and Remove Ads)
+
+Code lives in `Assets/Scripts/Monetization/` and installs itself before the first scene loads (`MonetizationRuntime`). Gameplay never calls it; it plugs into the hint gate, the between-puzzles slot, the level-select hooks and the Settings rows above. It follows Lance's ad strategy (written for Bricksplode), cut down to Snaploop's MVP; see [Ad strategy: what's in and what's later](#ad-strategy-whats-in-and-whats-later).
+
+**How it's built:**
+
+- `AdsService` is the only code that asks for an ad. The game sees it through `IAdsService` (`IsRewardedReady`, `ShowRewarded`, `MaybeShowInterstitial`, `Changed`).
+- `IAdNetwork` wraps one SDK and knows none of the rules: `TestAdNetwork` (fake ads), `LevelPlayAdNetwork` (Unity LevelPlay seam), `NoAdNetwork`.
+- `AdGate` (the rules), `AdLedger` (what the rules read, saved to `Application.persistentDataPath/ad-ledger.json`), `AdRules` (the numbers) and `AdBackoff` are plain C# in `Ads/Policy/`, with unit tests in `Tests/AdPolicy/`.
+- `IConsentProvider`, `IRemoteConfigProvider` and `IAdTelemetry` are seams with stub or debug-log implementations only.
+
+### The rules
+
+**Rewarded (hints only):**
+
+- Each hint costs one rewarded ad, and the hint is granted only if the ad is watched to the end. An ad closed early still counts toward the caps and the interstitial cooldown.
+- Caps: 8 per session, 20 per day. Available from the first session, and still available after buying Remove Ads.
+- The hint button is hidden (not greyed out) while no rewarded ad is loaded or a cap is reached, and appears as soon as one loads. When it costs an ad it reads "Get a hint", turns green and has an **AD** badge (`UIFactory.SetRewardedLook`, the shared look for any future rewarded button).
+- Builds with no ad network, and builds where rewarded ads are switched off, keep free hints.
+
+**Interstitials (only on Next after a win):** Snaploop has no fail or retry, so the win card's **Next** is the only slot. Checked in this order; the first rule that fails blocks the ad:
+
+| # | Rule | Default | Config key |
+| --- | --- | --- | --- |
+| 1 | Kill switch | on | `ads_inter_enabled` |
+| 2 | Player owns Remove Ads | | |
+| 3 | No puzzle in progress (Snaploop guard, `GameContext.IsPuzzleInProgress`) | | |
+| 4 | Grace: not in the first 2 sessions, and not before 5 cleared levels. The first interstitial can come in session 3. | 2 sessions, 5 levels | `ads_inter_grace_sessions`, `ads_inter_grace_levels` |
+| 5 | Level gap: at least 3 level ends (wins) since the last interstitial | 3 | `ads_inter_min_levels` |
+| 6 | Time gap since the last interstitial | 90 s | `ads_inter_min_seconds` |
+| 7 | Cooldown after a rewarded ad | 90 s | `ads_inter_after_rewarded_seconds` |
+| 8 | Session cap | 4 | `ads_inter_max_per_session` |
+| 9 | Daily cap | 10 | `ads_inter_max_per_day` |
+| 10 | Rage-quit pause: leaving the app within 30 s of an interstitial closing, twice in a row, stops interstitials for 24 h. Finishing a level after an interstitial resets the count. | 30 s, 2, 24 h | `ads_ragequit_window_seconds`, `ads_ragequit_count`, `ads_ragequit_suppress_hours` |
+| 11 | Consent has finished and allows ad requests | | |
+| 12 | An interstitial is already loaded (never waits for one) | | |
+
+**Banner (level select only):** never during play or on the win card. Only from day 3 after install (2 full local days) and after 5 sessions (`ads_banner_grace_days`, `ads_banner_grace_sessions`). Off after Remove Ads; kill switch `ads_banner_enabled`. It takes no space until one has loaded; then the level grid shrinks above it. The app refreshes it every 60 s (`ads_banner_refresh_seconds`, minimum 30) while level select is on screen, and destroys it when you leave level select, so nothing refreshes during play.
+
+**Sessions and days:** a session starts on a cold launch or when the app returns after 30 minutes in the background (`ads_session_timeout_min`). Daily counters reset at local midnight. If the device clock goes backwards, stored times are clamped to "now": that can restart a cooldown, but never allows more ads.
+
+**Loading and reliability:**
+
+- No ad is requested before consent has finished.
+- One rewarded ad is kept loaded at all times; one interstitial only once the player is past the grace period.
+- Failed loads retry after 4 s, doubling up to 3 min, with ±20% jitter. A load with no answer after 60 s counts as failed.
+- Show watchdog: if an ad's callbacks go missing, the show is ended so later ads don't hang: 10 s if it never appeared, 5 s after the app comes back to the front, 5 min at most.
+- Development builds always use LevelPlay's test ids, so they can never show a live ad.
+
+**Config can only reduce ads.** The numbers in `AdRules.cs` are the shipped defaults and also the ceiling. The values in the config asset, and remote config values on top of them, may only move toward fewer ads (longer gaps and grace, lower caps, kill switches off). A value of the wrong type, out of range, or more permissive than the ceiling is ignored, falls back, and is logged as `config_rejected`. Remote values are applied at session start, never mid-session. Raising ad volume needs a code change.
+
+**Telemetry:** every gate block (`ad_gate_blocked` with the rule), interstitial decision (`ad_decision` with the player's context) and ad lifecycle event (`ad_request`, `ad_loaded`, `ad_load_failed`, `ad_load_timeout`, `ad_displayed`, `ad_show_failed`, `ad_closed`, `ad_watchdog`, `rewarded_offer`/`_start`/`_earned`/`_abandoned`, `banner_shown`/`_hidden`, `session_start`/`_background`, consent events) goes to `IAdTelemetry`. The only implementation writes `[AdTelemetry] …` lines to the Unity log in development builds. There is no analytics SDK.
+
+### Where the IDs and numbers go
+
+Everything is in one asset: **`Assets/Resources/Monetization/MonetizationConfig.asset`** (select it in the Project window and edit it in the Inspector).
+
+| Field | What to put there |
+| --- | --- |
+| `adapter` | `Auto` (default): test ads in the Editor and development builds; in release builds, LevelPlay if it's set up, otherwise no ads. `TestAds`, `LevelPlay` and `Disabled` force one choice. Test ads never run in a release build. |
+| `levelPlayAndroid` | Release ids: `appKey`, and the `rewarded`, `interstitial` and `banner` ad unit ids. Empty for now. Used by release builds only. |
+| `levelPlayTestAndroid` | Ids every development build uses, whatever is above. Defaults are LevelPlay's public demo ids from its Unity sample (app key `25b63cf85`). |
+| `hintPlacement`, `nextLevelPlacement`, `levelSelectBannerPlacement` | Placement names reported to the network: `hint`, `next_level`, `level_select`. |
+| `adRules` | Every number in the tables above (field names match, e.g. `interMaxPerDay` for `ads_inter_max_per_day`). They can only be made stricter than the defaults. |
+| `testRewardedSeconds`, `testInterstitialCloseDelaySec` | Length of the fake ads. |
+| `removeAdsProductId` | Google Play product id of the Remove Ads non-consumable. The placeholder is `remove_ads`. |
+| `removeAdsFallbackPrice` | Shown until Google Play returns the localized price. Default `$4.99`. |
+| `fakeStoreInDevelopmentBuilds` | On by default: development builds use the fake store. Turn it off to test real billing from a development build. |
+
+### Testing without accounts
+
+- **Test ads**: in the Editor and development builds, ads are a full-screen overlay with a yellow **TEST AD** banner. The rewarded one only grants the hint if you wait for the 5 s countdown and tap **Get reward**; **Close (no reward)** abandons it. The interstitial can be closed after 2 s. The banner is a yellow **TEST BANNER** strip at the bottom of level select, with a load counter that goes up on each refresh.
+- **Fake store**: in the Editor and development builds, **Settings > Remove Ads - $4.99** opens a **TEST STORE** dialog with Buy, Cancel, and "Simulate a failed payment". No money moves.
+- **Dev menu** (Editor and development builds only; these rows are not registered in release builds):
+  - **Remove Ads: owned/not owned** sets both the local entitlement and the fake store's account.
+  - **Forget local Remove Ads** clears only the local entitlement, so you can try **Restore Purchases**.
+  - **Force interstitial on next Next** skips grace, gaps, caps and the rage-quit pause once. It never overrides the kill switch, Remove Ads, the mid-puzzle rule or consent.
+  - **Test ads: fill/no fill** simulates no fill: the hint button disappears and loads retry with backoff.
+  - **Ad ledger: session N, cleared M, day D (tap: skip grace)** makes this install look past every grace period, so interstitials and the banner can be tried right away.
+  - **Reset ad ledger (fresh install)** forgets all ad history.
+  - **Privacy choices row: shown/hidden** makes the consent stub ask for the Settings row.
+- In the Unity console, development builds log every decision and lifecycle event as `[AdTelemetry] …`, for example `[AdTelemetry] ad_gate_blocked format=interstitial placement=next_level rule=Grace`.
+- **Unit tests** for the rules: `dotnet run --project Tests/AdPolicy` (any .NET 8 SDK; Unity isn't needed).
+
+### Consent and privacy
+
+- `IConsentProvider` is the seam for Google's User Messaging Platform (UMP). Today it's `StubConsentProvider`, which finishes immediately and allows ads.
+- On every launch, consent is gathered before any ad request. Until it finishes, nothing loads and hints that need an ad stay hidden.
+- Settings shows a **Privacy choices** row when the provider says it's required. With the stub, that only happens through the dev menu, and tapping it shows a toast saying where the UMP form will open.
+
+### Remove Ads purchase
+
+- Remove Ads removes interstitials and banners only. Hint ads stay, because the player chooses to watch them.
+- Unity IAP 5.4.4 (`com.unity.purchasing`, in `Packages/manifest.json`) with one non-consumable. Release builds use Google Play billing through it.
+- The entitlement is saved in `Application.persistentDataPath/entitlements.json`, not PlayerPrefs, so the dev menu's "Reset progress" doesn't remove it. On every launch the app asks Google Play for past purchases and grants Remove Ads again if it's owned. A reinstall or a new device restores it automatically, and the **Restore Purchases** row does the same on demand.
+- The purchase is granted when Google Play reports it and confirmed after that. If confirmation is interrupted, Google Play delivers the purchase again on the next launch. A refund doesn't remove the entitlement automatically, and there is no server-side receipt validation.
+
+### Ad strategy: what's in and what's later
+
+| Strategy section | In Snaploop now | Later |
+| --- | --- | --- |
+| 2. Formats and placements | Rewarded hint, interstitial on Next after a win, banner on level select | Retry interstitial (Snaploop has no fail state) |
+| 3. Rewarded | Hint offer, caps, reward only on a full watch, hidden until loaded, shared green look with AD badge | Other offers (revive, double coins, save streak, try a skin, extra spin): they need soft currency or a fail state |
+| 4. Interstitial gates | The strategy's rules 1–6 and 8–12 plus the mid-puzzle guard, rage-quit pause (4.1), sessions, local-midnight reset, clock clamp | Frustration block (rule 7: Snaploop has no fail state); exploration skip and ad engine (4.2: need analytics) |
+| 5. Banners | All of it | |
+| 6. Retention systems | | Soft currency, daily rewards, spins, streaks, daily challenge, shop, reminders (post-MVP) |
+| 7. Purchase | Remove Ads via Unity IAP instead of RevenueCat | |
+| 8. Consent | Seam, "no request before consent", Privacy choices row | UMP itself, non-personalized ads without TCF consent, reloading ads after a consent change |
+| 9. Remote config and A/B | Keys, validation, reduce-only guarantee, applied at session start, stub provider | A real provider (e.g. Unity Remote Config or Firebase); A/B tests |
+| 10. Telemetry | Every gate block, decision and ad lifecycle event, to the debug log | An analytics SDK, `ad_paid` impression revenue, level and economy events |
+| 11. Architecture | `IAdsService`, `IAdNetwork`, `AdGate`, `AdLedger`, preloading, backoff, 60 s load timeout, show watchdog, test ids in debug | Replacing loaded ads before they expire (55 min); LevelPlay handles expiry itself, but this hasn't been checked |
+
+### What Lance needs to set up later
+
+None of this has been created yet. No accounts, listings or ad units exist.
+
+1. **Google Play Console** (developer account, app listing): create an in-app product, a one-time non-consumable, with the id from `removeAdsProductId`, priced at $4.99, and activate it. Billing only works for builds installed from a Play testing track (internal testing is enough) and signed with the upload key, with license testers added. Development builds are rejected by Play, so test real billing with a release build. Put the Google Play license key in **Project Settings > Services > In-App Purchasing** if you want Unity's client-side receipt validation (optional).
+2. **Unity Cloud project**: link the project (**Edit > Project Settings > Services**) and toggle **In-App Purchasing** on. Unity IAP works without this, but the link stops its warnings and enables Unity's revenue dashboard.
+3. **Ads, using Unity LevelPlay**:
+   - Create a LevelPlay account and an Android app, then create one rewarded, one interstitial and one banner ad unit. **Turn auto refresh off on the banner ad unit**: the game refreshes it itself.
+   - Install the LevelPlay package (`com.unity.services.levelplay`, via Package Manager or **Ads Mediation > Integration Manager**), and add any ad network adapters you want.
+   - Add `SNAPLOOP_LEVELPLAY` to **Project Settings > Player > Android > Scripting Define Symbols**.
+   - Fill in `levelPlayAndroid` (app key and the three ad unit ids). Leave `levelPlayTestAndroid` alone unless LevelPlay's demo ids stop working; then replace them with test ids for your own app (LevelPlay dashboard test mode or test devices).
+   - The adapter is `Assets/Scripts/Monetization/Ads/LevelPlayAdNetwork.cs`. It compiles against LevelPlay 9.6.0 but hasn't been run against a live account.
+   - If you add AdMob as a mediated network, its Android app id also goes in LevelPlay's network settings in the Unity Editor.
+   - To use a different mediation SDK, implement `IAdNetwork` and select it in `MonetizationRuntime.CreateAdNetwork`.
+4. **Consent**: add Google's User Messaging Platform (UMP) SDK, set up the GDPR and US state messages under **Privacy & messaging** in an AdMob account, and replace `StubConsentProvider` with a UMP-backed `IConsentProvider`. Also add a privacy policy URL to the Play listing and fill in Play's Data safety form for the ad SDK.
+5. **Remote config (optional)**: to tune ad rules without a release, implement `IRemoteConfigProvider` (Unity Remote Config or Firebase) using the `ads_*` keys above. Values can only make ads rarer.
 
 ## Performance notes
 
@@ -128,8 +261,9 @@ The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `I
 
 - **Not yet run in Unity.** The code compiles against Unity 6000.0.85f2's assemblies (player and editor) and the jigsaw geometry is unit-checked, but the project has not been opened in the Editor, played, or built to a device. That needs a Unity license; see [docs/BUILD.md](docs/BUILD.md).
 - Video from `StreamingAssets` inside the APK depends on Unity's VideoPlayer reading the `jar:` URL. Unity supports this, but it hasn't been confirmed on a device yet. If a clip fails, the puzzle still runs on a placeholder texture and shows a toast.
-- The three bundled clips (`sunset-shore`, `beach-waves`, `neon-street`, from Pexels) are placeholders until the real 30-level set lands.
+- Level clips are stored in Git LFS. Run `git lfs install` before cloning; otherwise the `.mp4` files are small pointer files and every level falls back to the placeholder texture. The footage pipeline (sourcing, encoding, credits) is described in [tools/footage/README.md](tools/footage/README.md).
 - No piece rotation; pieces only translate. Layout is computed when a level starts, so resizing mid-puzzle (foldables, split screen) is not handled.
 - Sound effects are synthesized at startup. There's no music, and clips have no audio.
 - UI text uses Unity's built-in LegacyRuntime font (no TextMeshPro assets).
 - The package id `com.snaploop.game` is a placeholder.
+- Monetization has only been compiled, not run. The ad rules are unit-tested in plain .NET, but the test ad, banner and store overlays, the Unity IAP flow and the LevelPlay adapter haven't been run in Unity or on a device. No real ad network, consent form or Play billing has been tried, because no accounts exist yet.

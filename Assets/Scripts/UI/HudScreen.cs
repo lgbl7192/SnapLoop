@@ -52,14 +52,13 @@ namespace Snaploop.UI
             Hide();
         }
 
-        public void ShowFor(LevelInfo level, string hintButtonLabel)
+        public void ShowFor(LevelInfo level)
         {
             Show();
             barsGroup.alpha = 1f;
             barsGroup.interactable = true;
             title.text = (level.Index + 1) + " · " + level.DisplayTitle;
             progress.text = "";
-            hintLabel.text = hintButtonLabel;
             SetLoading(true);
             SetHintInteractable(false);
         }
@@ -67,6 +66,14 @@ namespace Snaploop.UI
         public void SetLoading(bool on) => loading.gameObject.SetActive(on);
 
         public void SetHintInteractable(bool on) => hint.interactable = on;
+
+        /// <summary>A hint that is not on offer is hidden, not greyed out.</summary>
+        public void SetHintOffer(string label, bool offered, bool rewardedAd)
+        {
+            hintLabel.text = label;
+            UIFactory.SetRewardedLook(hint, rewardedAd, Palette.Accent);
+            hint.gameObject.SetActive(offered);
+        }
 
         public void SetProgress(int placed, int total)
         {

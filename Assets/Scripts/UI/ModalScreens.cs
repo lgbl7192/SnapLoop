@@ -69,6 +69,8 @@ namespace Snaploop.UI
 
             var close = UIFactory.Button("Close", Card, "Done", Palette.Accent, Close, 46);
             UIFactory.Place((RectTransform)close.transform, new Vector2(0.5f, 0f), new Vector2(460, 130), new Vector2(0, 40));
+
+            GameServices.SettingsChanged += () => { if (IsVisible) Refresh(); };
         }
 
         public override void Show()
@@ -149,7 +151,7 @@ namespace Snaploop.UI
     public sealed class DevMenuScreen : ModalScreen
     {
         readonly RectTransform list;
-        readonly Text unlockLabel, fpsLabel;
+        readonly Text unlockLabel, fpsLabel, jumpHeader;
         readonly Action<int> onJump;
         readonly Action onWin;
         readonly Action onShowOnboarding;
@@ -195,8 +197,8 @@ namespace Snaploop.UI
             var close = UIFactory.Button("Close", Card, "Close", Palette.SurfaceHigh, Close, 34);
             UIFactory.Place((RectTransform)close.transform, new Vector2(0.5f, 1f), new Vector2(420, 105), new Vector2(220, -370));
 
-            var hint = UIFactory.Label("JumpHeader", Card, "Jump to level", 36, Palette.TextDim);
-            UIFactory.Place(hint.rectTransform, new Vector2(0.5f, 1f), new Vector2(800, 60), new Vector2(0, -490));
+            jumpHeader = UIFactory.Label("JumpHeader", Card, "Jump to level", 36, Palette.TextDim);
+            UIFactory.Place(jumpHeader.rectTransform, new Vector2(0.5f, 1f), new Vector2(800, 60), new Vector2(0, -490));
 
             var viewport = UIFactory.Image("Viewport", Card, new Color(0, 0, 0, 0.25f), UIFactory.Rounded, raycast: true);
             UIFactory.Stretch(viewport.rectTransform, 30, 30, 560, 30);
@@ -224,6 +226,21 @@ namespace Snaploop.UI
             RefreshLabels();
             foreach (var go in levelRows) UnityEngine.Object.Destroy(go);
             levelRows.Clear();
+            jumpHeader.text = GameServices.DevMenuEntries.Count > 0 ? "Tools and levels" : "Jump to level";
+            foreach (var entry in GameServices.DevMenuEntries)
+            {
+                var e = entry;
+                Text label = null;
+                var b = UIFactory.Button("Tool", list, e.Label(), Palette.Accent2, () =>
+                {
+                    e.OnClick?.Invoke();
+                    label.text = e.Label();
+                }, 34);
+                label = UIFactory.ButtonLabel(b);
+                label.alignment = TextAnchor.MiddleLeft;
+                b.gameObject.AddComponent<LayoutElement>().preferredHeight = 96;
+                levelRows.Add(b.gameObject);
+            }
             var levels = LevelCatalog.Levels;
             for (int i = 0; i < levels.Count; i++)
             {

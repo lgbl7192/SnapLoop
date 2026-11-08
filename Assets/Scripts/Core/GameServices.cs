@@ -11,8 +11,17 @@ namespace Snaploop.Core
     /// </summary>
     public interface IHintGate
     {
-        /// <summary>Label for the hint button, e.g. "Hint" or "Hint (watch ad)".</summary>
+        /// <summary>Label for the hint button, e.g. "Hint".</summary>
         string ButtonLabel { get; }
+
+        /// <summary>
+        /// False hides the hint button (e.g. no rewarded ad loaded, or a cap reached). Call
+        /// <see cref="GameServices.NotifyHintOfferChanged"/> when this or the label changes.
+        /// </summary>
+        bool IsOffered { get; }
+
+        /// <summary>True when a hint costs a rewarded ad: the button gets the shared rewarded look with an AD badge.</summary>
+        bool IsRewardedAd { get; }
 
         /// <summary>Ask for a hint. Call <paramref name="onResult"/> exactly once, on the main thread.</summary>
         void RequestHint(Action<bool> onResult);
@@ -45,9 +54,18 @@ namespace Snaploop.Core
         public Func<bool> IsVisible;
     }
 
+    /// <summary>An extra row in the dev menu. <see cref="Label"/> is re-read after every click.</summary>
+    public sealed class DevMenuEntry
+    {
+        public Func<string> Label;
+        public Action OnClick;
+    }
+
     sealed class FreeHintGate : IHintGate
     {
         public string ButtonLabel => "Hint";
+        public bool IsOffered => true;
+        public bool IsRewardedAd => false;
         public void RequestHint(Action<bool> onResult) => onResult(true);
     }
 
@@ -80,6 +98,28 @@ namespace Snaploop.Core
             set => betweenPuzzles = value ?? new PassThroughGate();
         }
 
+        /// <summary>Raised by <see cref="NotifyHintOfferChanged"/>; the HUD re-reads the hint gate.</summary>
+        public static event Action HintOfferChanged;
+
+        public static void NotifyHintOfferChanged() => HintOfferChanged?.Invoke();
+
+        /// <summary>Screen pixels at the bottom of the level select reserved for a banner (0 = none).</summary>
+        public static float LevelSelectBottomInset { get; private set; }
+
+        public static event Action LevelSelectBottomInsetChanged;
+
+        /// <summary>
+        /// Reserve space at the bottom of the level select, measured in screen pixels from the bottom edge
+        /// of the screen. Only set it once a banner has loaded, and back to 0 when it is gone.
+        /// </summary>
+        public static void SetLevelSelectBottomInset(float screenPixels)
+        {
+            screenPixels = Mathf.Max(0f, screenPixels);
+            if (Mathf.Approximately(screenPixels, LevelSelectBottomInset)) return;
+            LevelSelectBottomInset = screenPixels;
+            LevelSelectBottomInsetChanged?.Invoke();
+        }
+
         /// <summary>Optional share provider. The win panel shows a Share button only when this is set and available.</summary>
         public static IShareProvider Share { get; set; }
 
@@ -88,6 +128,23 @@ namespace Snaploop.Core
         public static void AddSettingsEntry(string label, Action onClick, Func<bool> isVisible = null)
         {
             SettingsEntries.Add(new SettingsEntry { Label = label, OnClick = onClick, IsVisible = isVisible });
+        }
+
+        /// <summary>Raised by <see cref="NotifySettingsChanged"/>; an open Settings screen rebuilds its rows.</summary>
+        public static event Action SettingsChanged;
+
+        /// <summary>Call when a settings row's label or visibility changed outside a click (e.g. a purchase finished).</summary>
+        public static void NotifySettingsChanged() => SettingsChanged?.Invoke();
+
+        public static readonly List<DevMenuEntry> DevMenuEntries = new List<DevMenuEntry>();
+
+        /// <summary>
+        /// Adds a row to the dev menu. The dev menu also opens in release builds (wordmark taps),
+        /// so only register entries that are safe there, or guard with <c>Debug.isDebugBuild</c>.
+        /// </summary>
+        public static void AddDevMenuEntry(Func<string> label, Action onClick)
+        {
+            DevMenuEntries.Add(new DevMenuEntry { Label = label, OnClick = onClick });
         }
     }
 
@@ -111,5 +168,8 @@ namespace Snaploop.Core
 
         /// <summary>True from <see cref="GameEvents.PuzzleStarted"/> until the puzzle is completed or abandoned.</summary>
         public static bool IsPuzzleInProgress { get; internal set; }
+
+        /// <summary>True while the level select screen is shown. Changes raise <see cref="GameEvents.LevelSelectVisibilityChanged"/>.</summary>
+        public static bool IsLevelSelectVisible { get; internal set; }
     }
 }
