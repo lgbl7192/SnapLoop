@@ -1,9 +1,10 @@
 # Snaploop
 
-Android-first video jigsaw built in Unity. Every piece is a live window onto one looping clip: drag the pieces into place, they snap together, and the finished puzzle plays the full uncut loop.
+Android-first video puzzle built in Unity. Every tile is a live window onto one looping clip: drag the tiles into place, correct neighbours join into one shape, and the finished puzzle plays the full uncut loop.
 
 - Unity **6000.0.85f2** (Unity 6 LTS), built-in render pipeline, Android only, portrait.
 - Product name, Android app label and in-app splash: **Snaploop**. Package id `com.snaploop.game` is a placeholder; change it before the first store upload.
+- Clips are in Git LFS: run `git lfs install` before cloning (or `git lfs pull` afterwards).
 
 ## Project layout
 
@@ -11,12 +12,13 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | --- | --- |
 | `Assets/Scenes/Main.unity` | The only scene: a camera and the `SnaploopApp` component. All UI is built in code. |
 | `Assets/Scripts/App/SnaploopApp.cs` | Composition root and screen flow (splash, level select, puzzle, win, next). |
-| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (drag, snap, magnetism, scramble, hint, reveal), `JigsawShape` (tab outlines), `Triangulator`. |
+| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (free drag, snap, magnetism, scramble, hint, reveal), `TileBatch` (all tiles as one mesh), `TileGroups` (which tiles are joined). `JigsawShape` and `Triangulator` are the older tab-shaped cut, kept for reuse. |
 | `Assets/Scripts/Video/VideoFeed.cs` | The single `VideoPlayer` writing into one shared `RenderTexture`. |
 | `Assets/Scripts/Levels/` | `levels.json` loader and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, haptics, generated sound effects. |
 | `Assets/Scripts/UI/` | Code-built uGUI screens (level select, HUD, win card, settings, onboarding, dev menu). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
+| `Assets/Resources/Shaders/SnaploopVideoTile.shader` | The puzzle's tile shader: rounded tiles, gaps and outlines drawn per pixel from edge flags, so a joined group shows one outer outline. `SnaploopVideoPiece` above is the older jigsaw-piece shader. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, and `levels.json`. |
 | `Assets/Editor/Snaploop/` | Editor menu: **Snaploop > Apply Player Settings / Validate Levels / Open Main Scene**. |
 | `Assets/Scripts/Capture/`, `Assets/Plugins/Android/SnaploopCapture/` | Win clip capture: offscreen replay renderer and the Android encoder/share plugin. See [Vertical clip capture](#vertical-clip-capture-win-clips). |
@@ -83,7 +85,7 @@ Where ad and IAP IDs go is documented by the monetization work.
 ## Performance notes
 
 - One video decoder per puzzle, whatever the piece count. All pieces sample the same `RenderTexture` by UV.
-- All pieces are one mesh with one material: one draw call for pieces, plus one for the board and one for the reveal quad. Moving a piece rewrites its slice of a persistent vertex array, uploaded at most once per frame.
+- All tiles are one mesh with one material: one draw call for tiles, plus one for the board slots and one for the reveal quad. Moving a group rewrites its tiles' slice of a persistent vertex array, uploaded at most once per frame; stacking order is an index-buffer rewrite on pick-up and drop only.
 - No per-frame allocations in the gameplay loop. Progress strings are cached, and events are only raised on state changes.
 - Targets 60 fps; the screen stays awake while the app is open.
 
@@ -128,7 +130,7 @@ The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `I
 
 - **Not yet run in Unity.** The code compiles against Unity 6000.0.85f2's assemblies (player and editor) and the jigsaw geometry is unit-checked, but the project has not been opened in the Editor, played, or built to a device. That needs a Unity license; see [docs/BUILD.md](docs/BUILD.md).
 - Video from `StreamingAssets` inside the APK depends on Unity's VideoPlayer reading the `jar:` URL. Unity supports this, but it hasn't been confirmed on a device yet. If a clip fails, the puzzle still runs on a placeholder texture and shows a toast.
-- The three bundled clips (`sunset-shore`, `beach-waves`, `neon-street`, from Pexels) are placeholders until the real 30-level set lands.
+- Level clips are stored in Git LFS. Run `git lfs install` before cloning; otherwise the `.mp4` files are small pointer files and every level falls back to the placeholder texture. The footage pipeline (sourcing, encoding, credits) is described in [tools/footage/README.md](tools/footage/README.md).
 - No piece rotation; pieces only translate. Layout is computed when a level starts, so resizing mid-puzzle (foldables, split screen) is not handled.
 - Sound effects are synthesized at startup. There's no music, and clips have no audio.
 - UI text uses Unity's built-in LegacyRuntime font (no TextMeshPro assets).
