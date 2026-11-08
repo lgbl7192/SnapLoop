@@ -1,0 +1,170 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Build variant
+        type: choice
+        options: [debug, release]
+        default: debug
+      format:
+        description: Package format (AAB is what Google Play wants)
+        type: choice
+        options: [apk, aab]
+        default: apk
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUILD_VARIANT: ${{ inputs.variant || 'debug' }}
+  BUILD_FORMAT: ${{ inputs.format || 'apk' }}
+  # Marketing version prefix; the patch number and Android versionCode come from the run number.
+  APP_VERSION_PREFIX: '0.1'
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: ProjectSettings
+          lfs: false
+
+      - name: Check Unity project and secrets
+        id: check
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          ready=true
+          level=warning
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && level=error
+
+          if [ ! -f ProjectSettings/ProjectVersion.txt ]; then
+            echo "::$level::No Unity project found (ProjectSettings/ProjectVersion.txt is missing). Skipping the Android build."
+            ready=false
+          else
+            echo "Unity version: $(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+            echo "::$level::Secrets UNITY_EMAIL and UNITY_PASSWORD are not available (not set yet, or this is a pull request from a fork). Skipping the Android build. See docs/BUILD.md."
+            ready=false
+          fi
+
+          {
+            echo "Unity license file secret (UNITY_LICENSE): $([ -n "$UNITY_LICENSE" ] && echo set || echo 'not set, using account activation')"
+            echo ""
+            echo "Release keystore secret (ANDROID_KEYSTORE_BASE64): $([ -n "$ANDROID_KEYSTORE_BASE64" ] && echo set || echo 'not set, release builds use the debug keystore')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" != true ] && [ "$level" = error ]; then exit 1; fi
+
+  build:
+    name: Build ${{ inputs.variant || 'debug' }} ${{ inputs.format || 'apk' }}
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # A Unity Personal account only has a couple of activation seats, so never run two builds at once.
+    concurrency:
+      group: unity-personal-seat
+      cancel-in-progress: false
+    steps:
+      # The Unity Android image is large; the default runner disk is too small without this.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          tool-cache: false
+
+      - uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      # Cache LFS objects so the clips don't count against the LFS bandwidth quota on every run.
+      - name: List LFS objects
+        id: lfs
+        run: echo "hash=$(git lfs ls-files --long | sort | sha256sum | cut -c1-64)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LFS cache
+        uses: actions/cache@v6
+        with:
+          path: .git/lfs
+          key: lfs-${{ steps.lfs.outputs.hash }}
+
+      - name: Git LFS pull
+        run: git lfs pull
+
+      - name: Restore Library cache
+        uses: actions/cache@v6
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-
+
+      - name: Compute version
+        id: version
+        run: |
+          echo "version=${APP_VERSION_PREFIX}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build with Unity
+        id: unity
+        uses: game-ci/unity-builder@v6
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          # Optional. Leave unset to activate a Personal seat from the email/password above.
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          cliVersion: v0.1.72
+          targetPlatform: Android
+          buildMethod: Snaploop.Build.SnaploopBuild.BuildFromCommandLine
+          customParameters: -variant ${{ env.BUILD_VARIANT }}
+          buildName: Snaploop-${{ env.BUILD_VARIANT }}-${{ steps.version.outputs.version }}
+          versioning: Custom
+          version: ${{ steps.version.outputs.version }}
+          androidVersionCode: ${{ steps.version.outputs.code }}
+          androidExportType: ${{ env.BUILD_FORMAT == 'aab' && 'androidAppBundle' || 'androidPackage' }}
+          # Only release builds get the release keystore; debug builds always use Unity's debug keystore.
+          androidKeystoreName: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_BASE64 != '' && 'snaploop-release.keystore' || '' }}
+          androidKeystoreBase64: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          androidKeystorePass: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_PASS || '' }}
+          androidKeyaliasName: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYALIAS_NAME || '' }}
+          androidKeyaliasPass: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYALIAS_PASS || '' }}
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: Snaploop-${{ env.BUILD_VARIANT }}-${{ env.BUILD_FORMAT }}-${{ steps.version.outputs.version }}
+          path: build/Android/*.${{ env.BUILD_FORMAT }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "### Snaploop ${BUILD_VARIANT} ${BUILD_FORMAT^^} ${{ steps.version.outputs.version }}"
+            echo ""
+            echo "Download it from the **Artifacts** section of this run's summary page."
+            echo ""
+            du -h build/Android/*."${BUILD_FORMAT}" | sed 's/^/    /'
+          } >> "$GITHUB_STEP_SUMMARY"
