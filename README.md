@@ -101,7 +101,7 @@ After a win, Snaploop can export a 9:16 MP4 of the puzzle: the scrambled pieces 
 
 The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `IShareProvider` installed before the first scene loads) builds a `ClipJob` from the win's `PuzzleResult`:
 
-1. `ClipScene` rebuilds the same jigsaw cut as the game (same `JigsawShape` seed, triangulation and `Snaploop/VideoPiece` shader) in a 720x1280 layout. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
+1. `ClipScene` rebuilds the puzzle's tile grid with the game's own `TileBatch`, `TileGroups` and `Snaploop/VideoTile` shader in a 720x1280 layout. Tiles join into one outlined shape as they land, just like in play. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
 2. `ClipVideoSource` opens the level's clip in a second, paused `VideoPlayer` and steps it one frame per output frame, so the moving picture in the clip is smooth however slow encoding is. If stepping isn't supported or stalls, it falls back to the game's live video texture.
 3. Frames are read back with `AsyncGPUReadback` (falling back to `ReadPixels`) and handed to a sink:
    - **Android:** `ClipEncoder.java` uploads each RGBA frame as a texture to a private EGL context whose surface is the input of a hardware `MediaCodec` H.264 encoder, then muxes with `MediaMuxer`. The frame buffer goes from C# to Java as a direct `ByteBuffer`, with no copy into the Java heap.
