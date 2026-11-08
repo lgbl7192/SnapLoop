@@ -35,7 +35,7 @@ env:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ready: ${{ steps.check.outputs.ready }}
     steps:
@@ -78,10 +78,10 @@ jobs:
           if [ "$ready" != true ] && [ "$level" = error ]; then exit 1; fi
 
   build:
-    name: Build ${{ inputs.variant || 'debug' }} ${{ inputs.format || 'apk' }}
+    name: Build Android
     needs: preflight
     if: needs.preflight.outputs.ready == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     # A Unity Personal account only has a couple of activation seats, so never run two builds at once.
     concurrency:
