@@ -63,10 +63,14 @@ namespace Snaploop.Puzzle
         static readonly Color32 EdgeDarkInner = new Color32(12, 12, 16, 255);
         static readonly Color32 EdgeLift = new Color32(255, 255, 255, 0);
         static readonly Color32 EdgeLiftInner = new Color32(255, 255, 255, 255);
-        static readonly Color32 BoardBg = new Color32(16, 17, 24, GhostAmount);
-        static readonly Color32 SlotLine = new Color32(70, 74, 92, 0);
+        static readonly Color32 BoardBg = new Color32(18, 15, 51, GhostAmount);
+        static readonly Color32 SlotLine = new Color32(92, 80, 190, 0);
+        const float SnapPopScale = 1.08f;
+        const float ShadowAlpha = 0.5f;
 
         public event Action<int, int> ProgressChanged;
+        /// <summary>A placed piece finished settling into its slot (screen position of its centre). Visual only.</summary>
+        public event Action<Vector2> PieceLanded;
         public event Action<PuzzleResult> Completed;
         public event Action<PuzzleResult> RevealFinished;
         public event Action<bool> LevelReady;
@@ -84,6 +88,8 @@ namespace Snaploop.Puzzle
         Mesh piecesMesh, boardMesh;
         GameObject piecesGo, boardGo, revealGo;
         MeshRenderer piecesRenderer, boardRenderer, revealRenderer;
+        SpriteRenderer dragShadow;
+        int shadowPiece = -1;
 
         Piece[] pieces;
         int[] order;      // piece indices from bottom to top of the loose stack
@@ -138,6 +144,16 @@ namespace Snaploop.Puzzle
             piecesGo.GetComponent<MeshFilter>().sharedMesh = piecesMesh;
             boardMesh = new Mesh { name = "BoardMesh" };
             boardGo.GetComponent<MeshFilter>().sharedMesh = boardMesh;
+
+            // Soft shadow under the lifted piece. Transparent, so it draws over pieces behind the
+            // dragged one and is hidden by the dragged piece itself (which writes depth).
+            var shadowGo = new GameObject("DragShadow");
+            shadowGo.transform.SetParent(transform, false);
+            dragShadow = shadowGo.AddComponent<SpriteRenderer>();
+            dragShadow.sprite = Snaploop.UI.UISprites.Shadow;
+            dragShadow.drawMode = SpriteDrawMode.Sliced;
+            dragShadow.color = new Color(0.02f, 0.01f, 0.08f, 0f);
+            shadowGo.SetActive(false);
             SetVisible(false);
         }
 
@@ -160,6 +176,7 @@ namespace Snaploop.Puzzle
             piecesGo.SetActive(v);
             boardGo.SetActive(v);
             if (!v) revealGo.SetActive(false);
+            if (!v) { shadowPiece = -1; dragShadow.gameObject.SetActive(false); }
         }
 
         /// <summary>Screen-pixel rectangle the puzzle may use (between the HUD bars).</summary>
@@ -421,6 +438,7 @@ namespace Snaploop.Puzzle
             }
 
             bool anyTween = UpdateTweens(dt);
+            UpdateDragShadow();
 
             if (state == State.Scrambling && !anyTween)
             {
@@ -480,7 +498,8 @@ namespace Snaploop.Puzzle
         void WritePiece(int i)
         {
             ref Piece p = ref pieces[i];
-            float z = p.Placed && !p.Tweening ? ZPlaced : ZLooseBase - p.Order * ZStep;
+            // A popping placed piece sits just in front of its placed neighbours so the overlap doesn't z-fight.
+            float z = p.Placed && !p.Tweening ? (p.Scale > 1.0001f ? ZPlaced - 0.05f : ZPlaced) : ZLooseBase - p.Order * ZStep;
             float s = p.Scale;
             int end = p.VertStart + p.VertCount;
             for (int k = p.VertStart; k < end; k++)
@@ -641,6 +660,7 @@ namespace Snaploop.Puzzle
             dragStartPos = h.Pos;
             h.TargetScale = LiftScale;
             BringToFront(hit);
+            shadowPiece = hit;
             SetEdgeColors(hit, EdgeLift, EdgeLiftInner);
             Sfx.PlayPickup();
             return true;
@@ -716,7 +736,36 @@ namespace Snaploop.Puzzle
         {
             // Placed pieces drop to the back layer and lose their bevel so the picture becomes seamless.
             SetEdgeColors(i, FillColor, FillColor);
+            pieces[i].Scale = SnapPopScale;
+            pieces[i].TargetScale = 1f;
             WritePiece(i);
+            if (PieceLanded != null && cam != null) PieceLanded(cam.WorldToScreenPoint(pieces[i].Home));
+        }
+
+        void UpdateDragShadow()
+        {
+            if (shadowPiece < 0 || pieces == null || shadowPiece >= pieces.Length)
+            {
+                if (dragShadow.gameObject.activeSelf) dragShadow.gameObject.SetActive(false);
+                return;
+            }
+            ref Piece p = ref pieces[shadowPiece];
+            float lift = p.Placed && !p.Tweening ? 0f : Mathf.Clamp01((p.Scale - 1f) / (LiftScale - 1f));
+            if (lift <= 0f && dragIndex != shadowPiece)
+            {
+                shadowPiece = -1;
+                dragShadow.gameObject.SetActive(false);
+                return;
+            }
+            if (!dragShadow.gameObject.activeSelf) dragShadow.gameObject.SetActive(true);
+            float z = ZLooseBase - p.Order * ZStep + ZStep * 0.5f;
+            dragShadow.transform.localPosition = new Vector3(p.Pos.x + cellMin * 0.05f * lift, p.Pos.y - cellMin * 0.09f * lift, z);
+            // Scale the sliced sprite so its baked blur band matches the wanted blur at any cell size.
+            float blur = cellMin * 0.22f;
+            float k = blur / (Snaploop.UI.UISprites.ShadowBlur / dragShadow.sprite.pixelsPerUnit);
+            dragShadow.transform.localScale = new Vector3(k, k, 1f);
+            dragShadow.size = new Vector2(cellSize.x * p.Scale + 2f * blur, cellSize.y * p.Scale + 2f * blur) / k;
+            dragShadow.color = new Color(0.02f, 0.01f, 0.08f, ShadowAlpha * lift);
         }
 
         /// <summary>Auto-places one random loose piece. Returns false if nothing to place.</summary>

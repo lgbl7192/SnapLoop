@@ -233,25 +233,32 @@ namespace Snaploop.Monetization
             BuildToast();
         }
 
+        static UITheme T => UITheme.Current;
+
         void BuildToast()
         {
-            var bg = UIFactory.Panel("Toast", root, new Color(0f, 0f, 0f, 0.85f), raycast: false);
-            toastRoot = UIFactory.Place(bg.rectTransform, new Vector2(0.5f, 0f), new Vector2(940, 130), new Vector2(0, UILayout.BottomBar + 170));
+            var bg = UIFactory.RoundRect("Toast", root, new Color(T.ink.r, T.ink.g, T.ink.b, 0.94f), 18f);
+            toastRoot = UIFactory.Place(bg.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(352f), T.U(54f)), new Vector2(0, UILayout.BottomBar + 170));
+            UIFactory.Stroke("Hairline", bg.transform, T.stroke, 18f);
             toastGroup = bg.gameObject.AddComponent<CanvasGroup>();
             toastGroup.alpha = 0f;
             toastGroup.blocksRaycasts = false;
-            toastText = UIFactory.Label("Text", bg.transform, "", 36, Palette.Text);
-            UIFactory.Stretch(toastText.rectTransform, 24, 24, 8, 8);
+            toastText = UIFactory.Text("Text", bg.transform, "", TextRole.Label, T.labelS, Palette.Text);
+            UIFactory.Stretch(toastText.rectTransform, T.U(16f), T.U(16f), T.U(4f), T.U(4f));
         }
 
         void BuildBusy()
         {
             var scrim = UIFactory.Image("Busy", root, Palette.Scrim, null, raycast: true);
             busyRoot = UIFactory.Stretch(scrim.rectTransform);
-            var card = UIFactory.Panel("Card", busyRoot, Palette.Surface, raycast: false);
-            UIFactory.Place(card.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(760, 220));
-            busyText = UIFactory.Label("Text", card.transform, "", 42, Palette.Text);
-            UIFactory.Stretch(busyText.rectTransform, 30, 30, 10, 10);
+            var card = UIFactory.Card("Card", busyRoot, T.radiusLg);
+            UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(T.U(300f), T.U(130f)));
+            var spinner = UIFactory.Icon("Spinner", card, UISprites.Spinner, Color.white, 34f);
+            UIFactory.Place(spinner.rectTransform, new Vector2(0.5f, 1f), spinner.rectTransform.sizeDelta, new Vector2(0f, -T.U(20f)));
+            UIFactory.Gradient(spinner, T.sunsetA, T.sunsetB);
+            spinner.gameObject.AddComponent<Spin>().degreesPerSecond = -300f;
+            busyText = UIFactory.Text("Text", card, "", TextRole.Label, T.label, Palette.Text);
+            UIFactory.Stretch(busyText.rectTransform, T.U(16f), T.U(16f), T.U(62f), T.U(12f));
             busyRoot.gameObject.SetActive(false);
         }
 
@@ -259,48 +266,56 @@ namespace Snaploop.Monetization
         {
             var bg = UIFactory.Image("TestBanner", root, TestYellow, null, raycast: true);
             bannerRoot = UIFactory.Band(bg.rectTransform, 0f, TestBannerHeight);
-            bannerText = UIFactory.Label("Text", bannerRoot, "", 32, TestInk, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Stretch(bannerText.rectTransform, 20, 20, 6, 6);
+            var edge = UIFactory.Image("Edge", bannerRoot, TestInk);
+            UIFactory.Band(edge.rectTransform, 1f, 4f);
+            bannerText = UIFactory.Text("Text", bannerRoot, "", TextRole.Label, 12f, TestInk);
+            UIFactory.Stretch(bannerText.rectTransform, 20, 20, 8, 6);
             bannerRoot.gameObject.SetActive(false);
         }
 
         void BuildAd()
         {
-            var bg = UIFactory.Image("TestAd", root, new Color(0.04f, 0.04f, 0.05f, 1f), null, raycast: true);
+            var bg = UIFactory.Image("TestAd", root, Color.white, null, raycast: true);
             adRoot = UIFactory.Stretch(bg.rectTransform);
-
-            adArt = UIFactory.Image("Art", adRoot, Color.gray);
-            UIFactory.Stretch(adArt.rectTransform, 0, 0, 380, 420);
+            UIFactory.Gradient(bg, T.surfaceLow, T.bgBottom);
 
             var banner = UIFactory.Image("Banner", adRoot, TestYellow);
-            UIFactory.Band(banner.rectTransform, 1f, 300f);
-            var big = UIFactory.Label("TestAd", banner.transform, "TEST AD", 110, TestInk, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Place(big.rectTransform, new Vector2(0.5f, 0f), new Vector2(1000, 140), new Vector2(0, 110));
-            var sub = UIFactory.Label("Sub", banner.transform, "Not a real advertisement. Development build only.", 34, TestInk);
-            UIFactory.Place(sub.rectTransform, new Vector2(0.5f, 0f), new Vector2(1000, 60), new Vector2(0, 40));
+            UIFactory.Band(banner.rectTransform, 1f, T.U(118f));
+            var big = UIFactory.Label("TestAd", banner.transform, "TEST AD", T.F(46f), TestInk);
+            big.font = UIFactory.FontFor(TextRole.Title);
+            UIFactory.Place(big.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(360f), T.U(56f)), new Vector2(0, T.U(30f)));
+            var sub = UIFactory.Text("Sub", banner.transform, "Not a real advertisement. Development build only.", TextRole.Label, 12f, TestInk);
+            UIFactory.Place(sub.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(360f), T.U(22f)), new Vector2(0, T.U(8f)));
 
-            adKind = UIFactory.Label("Kind", adRoot, "", 56, Palette.Text, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Place(adKind.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(1000, 220), new Vector2(0, 80));
-            var brand = UIFactory.Label("Brand", adRoot, "Snaploop dummy ad adapter", 34, Palette.TextDim);
-            UIFactory.Place(brand.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(1000, 60), new Vector2(0, -60));
+            var artCard = UIFactory.RoundRect("ArtFrame", adRoot, Color.white, T.radiusLg);
+            UIFactory.Stretch(artCard.rectTransform, T.U(20f), T.U(20f), T.U(140f), T.U(190f));
+            artCard.color = new Color(1f, 1f, 1f, 0.12f);
+            adArt = UIFactory.RoundRect("Art", artCard.transform, Color.gray, T.radiusLg - 3f);
+            UIFactory.Stretch(adArt.rectTransform, T.U(4f), T.U(4f), T.U(4f), T.U(4f));
 
-            var track = UIFactory.Image("Track", adRoot, new Color(1f, 1f, 1f, 0.15f));
-            UIFactory.Place(track.rectTransform, new Vector2(0.5f, 0f), new Vector2(900, 14), new Vector2(0, 360));
-            var fill = UIFactory.Image("Fill", track.transform, TestYellow);
+            adKind = UIFactory.Text("Kind", adRoot, "", TextRole.Title, 28f, Palette.Text);
+            UIFactory.Place(adKind.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(T.U(340f), T.U(90f)), new Vector2(0, T.U(30f)));
+            var brand = UIFactory.Text("Brand", adRoot, "Snaploop dummy ad adapter", TextRole.Label, T.labelS, new Color(1f, 1f, 1f, 0.8f));
+            UIFactory.Place(brand.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(T.U(340f), T.U(24f)), new Vector2(0, -T.U(30f)));
+
+            var track = UIFactory.RoundRect("Track", adRoot, new Color(1f, 1f, 1f, 0.15f), 4f);
+            UIFactory.Place(track.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(330f), T.U(8f)), new Vector2(0, T.U(160f)));
+            var fill = UIFactory.RoundRect("Fill", track.transform, TestYellow, 4f);
             adProgress = fill.rectTransform;
             adProgress.anchorMin = Vector2.zero;
             adProgress.anchorMax = new Vector2(0f, 1f);
             adProgress.offsetMin = adProgress.offsetMax = Vector2.zero;
 
-            adCountdown = UIFactory.Label("Countdown", adRoot, "", 40, Palette.Text);
-            UIFactory.Place(adCountdown.rectTransform, new Vector2(0.5f, 0f), new Vector2(900, 70), new Vector2(0, 270));
+            adCountdown = UIFactory.Text("Countdown", adRoot, "", TextRole.Label, T.label, Palette.Text);
+            UIFactory.Place(adCountdown.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(330f), T.U(28f)), new Vector2(0, T.U(124f)));
 
-            adClose = UIFactory.Button("Close", adRoot, "Close", Palette.SurfaceHigh, () => FinishAd(false), 40);
-            UIFactory.Place((RectTransform)adClose.transform, new Vector2(0.5f, 0f), new Vector2(520, 130), new Vector2(0, 100));
+            float h = UIFactory.ButtonHeight(ButtonSize.Large);
+            adClose = UIFactory.JuicyButton("Close", adRoot, ButtonTone.Neutral, ButtonSize.Large, "Close", () => FinishAd(false), UISprites.Close);
+            UIFactory.Place((RectTransform)adClose.transform, new Vector2(0.5f, 0f), new Vector2(T.U(300f), h), new Vector2(0, T.U(40f)));
             adCloseLabel = UIFactory.ButtonLabel(adClose);
 
-            adClaim = UIFactory.Button("Claim", adRoot, "Get reward", Palette.Rewarded, () => FinishAd(true), 46);
-            UIFactory.Place((RectTransform)adClaim.transform, new Vector2(0.5f, 0f), new Vector2(520, 130), new Vector2(0, 100));
+            adClaim = UIFactory.JuicyButton("Claim", adRoot, ButtonTone.Reward, ButtonSize.Large, "Get reward", () => FinishAd(true), UISprites.Sparkle);
+            UIFactory.Place((RectTransform)adClaim.transform, new Vector2(0.5f, 0f), new Vector2(T.U(300f), h), new Vector2(0, T.U(40f)));
 
             adRoot.gameObject.SetActive(false);
         }
@@ -309,27 +324,39 @@ namespace Snaploop.Monetization
         {
             var scrim = UIFactory.Image("TestStore", root, Palette.Scrim, null, raycast: true);
             storeRoot = UIFactory.Stretch(scrim.rectTransform);
-            var card = UIFactory.Panel("Card", storeRoot, Palette.Surface);
-            var c = UIFactory.Place(card.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(900, 900));
+            var c = UIFactory.Card("Card", storeRoot, T.radiusLg);
+            UIFactory.Place(c, new Vector2(0.5f, 0.5f), new Vector2(T.U(340f), T.U(360f)));
 
-            var banner = UIFactory.Panel("Banner", c, TestYellow, raycast: false);
-            UIFactory.Place(banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(840, 110), new Vector2(0, -30));
-            var bannerText = UIFactory.Label("Text", banner.transform, "TEST STORE", 60, TestInk, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Stretch(bannerText.rectTransform);
+            var banner = UIFactory.RoundRect("Banner", c, TestYellow, 12f);
+            UIFactory.Place(banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(T.U(230f), T.U(48f)), new Vector2(0, T.U(22f)));
+            UIFactory.Stroke("Ink", banner.transform, T.InkColor, 12f, T.inkWidth * 0.5f);
+            var bannerText = UIFactory.Label("Text", banner.transform, "TEST STORE", T.F(26f), TestInk);
+            bannerText.font = UIFactory.FontFor(TextRole.Title);
+            UIFactory.Stretch(bannerText.rectTransform, 0, 0, 0, T.U(2f));
 
-            storeTitle = UIFactory.Label("Title", c, "", 62, Palette.Text, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Place(storeTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(840, 90), new Vector2(0, -180));
-            storePrice = UIFactory.Label("Price", c, "", 56, Palette.Star, TextAnchor.MiddleCenter, FontStyle.Bold);
-            UIFactory.Place(storePrice.rectTransform, new Vector2(0.5f, 1f), new Vector2(840, 80), new Vector2(0, -275));
-            var note = UIFactory.Label("Note", c, "Fake purchase for testing. No money is charged.\nEditor and development builds only.", 34, Palette.TextDim);
-            UIFactory.Place(note.rectTransform, new Vector2(0.5f, 1f), new Vector2(840, 110), new Vector2(0, -370));
+            storeTitle = UIFactory.Text("Title", c, "", TextRole.Title, T.titleS, Palette.Text);
+            UIFactory.Place(storeTitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(T.U(310f), T.U(36f)), new Vector2(0, -T.U(48f)));
+            storePrice = UIFactory.Text("Price", c, "", TextRole.Number, T.titleM, Palette.Star);
+            UIFactory.Place(storePrice.rectTransform, new Vector2(0.5f, 1f), new Vector2(T.U(310f), T.U(40f)), new Vector2(0, -T.U(88f)));
+            var note = UIFactory.Text("Note", c, "Fake purchase for testing. No money is charged.\nEditor and development builds only.", TextRole.Body, T.bodyS, Palette.TextDim);
+            UIFactory.Place(note.rectTransform, new Vector2(0.5f, 1f), new Vector2(T.U(300f), T.U(44f)), new Vector2(0, -T.U(136f)));
 
-            var buy = UIFactory.Button("Buy", c, "Buy (test)", Palette.Accent, () => FinishStore(PurchaseOutcome.Purchased), 46);
-            UIFactory.Place((RectTransform)buy.transform, new Vector2(0.5f, 0f), new Vector2(380, 130), new Vector2(-200, 190));
-            var cancel = UIFactory.Button("Cancel", c, "Cancel", Palette.SurfaceHigh, () => FinishStore(PurchaseOutcome.Cancelled), 46);
-            UIFactory.Place((RectTransform)cancel.transform, new Vector2(0.5f, 0f), new Vector2(380, 130), new Vector2(200, 190));
-            var fail = UIFactory.Button("Fail", c, "Simulate a failed payment", Palette.SurfaceHigh, () => FinishStore(PurchaseOutcome.Failed), 32);
-            UIFactory.Place((RectTransform)fail.transform, new Vector2(0.5f, 0f), new Vector2(780, 100), new Vector2(0, 50));
+            float h = UIFactory.ButtonHeight(ButtonSize.Large), inner = T.U(16f), gap = T.U(5f);
+            var buy = UIFactory.JuicyButton("Buy", c, ButtonTone.Primary, ButtonSize.Large, "Buy (test)", () => FinishStore(PurchaseOutcome.Purchased));
+            var brt = (RectTransform)buy.transform;
+            brt.anchorMin = new Vector2(0f, 0f); brt.anchorMax = new Vector2(0.5f, 0f); brt.pivot = new Vector2(0.5f, 0f);
+            brt.offsetMin = new Vector2(inner, T.U(74f)); brt.offsetMax = new Vector2(-gap, T.U(74f) + h);
+            var cancel = UIFactory.JuicyButton("Cancel", c, ButtonTone.Neutral, ButtonSize.Large, "Cancel", () => FinishStore(PurchaseOutcome.Cancelled));
+            var crt = (RectTransform)cancel.transform;
+            crt.anchorMin = new Vector2(0.5f, 0f); crt.anchorMax = new Vector2(1f, 0f); crt.pivot = new Vector2(0.5f, 0f);
+            crt.offsetMin = new Vector2(gap, T.U(74f)); crt.offsetMax = new Vector2(-inner, T.U(74f) + h);
+            var fail = UIFactory.JuicyButton("Fail", c, ButtonTone.Neutral, ButtonSize.Medium, "Simulate a failed payment", () => FinishStore(PurchaseOutcome.Failed));
+            var fl = UIFactory.ButtonLabel(fail);
+            fl.font = UIFactory.FontFor(TextRole.Label);
+            fl.fontSize = T.F(T.labelS);
+            var frt = (RectTransform)fail.transform;
+            frt.anchorMin = new Vector2(0f, 0f); frt.anchorMax = new Vector2(1f, 0f); frt.pivot = new Vector2(0.5f, 0f);
+            frt.offsetMin = new Vector2(inner, T.U(16f)); frt.offsetMax = new Vector2(-inner, T.U(16f) + UIFactory.ButtonHeight(ButtonSize.Medium));
 
             storeRoot.gameObject.SetActive(false);
         }

@@ -73,6 +73,7 @@ namespace Snaploop.App
             board.ProgressChanged += OnProgressChanged;
             board.Completed += OnCompleted;
             board.RevealFinished += OnRevealFinished;
+            board.PieceLanded += OnPieceLanded;
             GameEvents.RevealStarted += OnRevealStarted;
             GameServices.HintOfferChanged += RefreshHintOffer;
 
@@ -127,6 +128,7 @@ namespace Snaploop.App
             cam.allowHDR = false;
             cam.allowMSAA = false;
             GameContext.BoardCamera = cam;
+            Backdrop.Create(cam).transform.SetParent(transform, true);
         }
 
         void SetupEventSystem()
@@ -158,12 +160,16 @@ namespace Snaploop.App
 
             levelSelect = new LevelSelectScreen(safeRoot, this, OnLevelCardTapped, () => OpenModal(settings));
             levelSelect.DevMenuRequested += () => OpenModal(devMenu);
-            hud = new HudScreen(safeRoot, OnBackToLevels, () => OpenModal(settings), OnHintClicked);
+            // Debug builds also get a Dev button in the HUD, where "Win now" applies to the running puzzle.
+            hud = new HudScreen(safeRoot, OnBackToLevels, () => OpenModal(settings), OnHintClicked,
+                Debug.isDebugBuild ? () => OpenModal(devMenu) : (Action)null);
             win = new WinScreen(safeRoot, OnNextClicked, OnBackToLevels, r => GameServices.Share?.Share(r));
 
             flash = UIFactory.Image("Flash", canvasRoot, new Color(1f, 1f, 1f, 0f));
             UIFactory.Stretch(flash.rectTransform);
             flash.gameObject.SetActive(false);
+
+            UIFx.Create();
 
             fpsText = UIFactory.Label("Fps", canvasRoot, "", 30, Color.green, TextAnchor.UpperLeft);
             UIFactory.Place(fpsText.rectTransform, new Vector2(0f, 1f), new Vector2(300, 50), new Vector2(12, -8));
@@ -186,6 +192,7 @@ namespace Snaploop.App
             board.StopVideo();
             hud.Hide();
             win.Hide();
+            UIFx.Instance?.Clear();
             currentIndex = -1;
             transitioning = false;
             levelSelect.Show();
@@ -207,6 +214,7 @@ namespace Snaploop.App
             transitioning = false;
             levelSelect.Hide();
             win.Hide();
+            UIFx.Instance?.Clear();
             hud.ShowFor(level);
             RefreshHintOffer();
             board.SetPlayArea(UILayout.PuzzlePlayArea());
@@ -228,6 +236,11 @@ namespace Snaploop.App
         }
 
         void OnProgressChanged(int placed, int total) => hud.SetProgress(placed, total);
+
+        void OnPieceLanded(Vector2 screenPos)
+        {
+            if (UIFx.Instance != null) UIFx.Instance.Burst(screenPos, UITheme.Current.sunsetA);
+        }
 
         void OnHintClicked()
         {
