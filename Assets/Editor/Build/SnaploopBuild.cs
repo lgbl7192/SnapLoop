@@ -142,6 +142,8 @@ namespace Snaploop.Build
             }
 
             var summary = report.summary;
+            if (Application.isBatchMode)
+                WriteCiResult(summary);
             if (summary.result != BuildResult.Succeeded)
             {
                 Fail($"Build {summary.result} with {summary.totalErrors} error(s). See the Unity log above for details.");
@@ -153,6 +155,20 @@ namespace Snaploop.Build
             if (!Application.isBatchMode)
                 EditorUtility.RevealInFinder(summary.outputPath);
             return report;
+        }
+
+        // GameCI decides pass/fail by scraping stdout for this block (format copied from its default
+        // StdOutReporter) and the "Build succeeded!" line; without them it fails a successful build.
+        static void WriteCiResult(BuildSummary summary)
+        {
+            var eol = Environment.NewLine;
+            Console.WriteLine(
+                $"{eol}###########################{eol}#      Build results      #{eol}###########################{eol}{eol}"
+                + $"Duration: {summary.totalTime}{eol}"
+                + $"Warnings: {summary.totalWarnings}{eol}"
+                + $"Errors: {summary.totalErrors}{eol}"
+                + $"Size: {summary.totalSize} bytes{eol}");
+            Console.WriteLine(summary.result == BuildResult.Succeeded ? "Build succeeded!" : $"Build {summary.result}!");
         }
 
         static void ApplyVersion()
