@@ -1,0 +1,168 @@
+name: UI screenshots
+
+# Builds a Linux development player and runs it under Xvfb at phone resolutions. The player's
+# screenshot runner (Assets/Scripts/Dev/UIScreenshotRunner.cs) presses through every screen and saves
+# PNGs, uploaded as the "ui-screenshots" artifact. A simulated cutout and gesture bar make safe-area
+# handling visible. Development builds show Unity's "Development Build" watermark; release APKs do not.
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/ui-screenshots.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ui-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SIZES: '1080x2400 720x1600'
+
+jobs:
+  screenshots:
+    name: Capture UI screenshots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    # Same group as the Android build: a Unity Personal account has one seat, so one Unity job at a time.
+    concurrency:
+      group: unity-personal-seat
+      cancel-in-progress: false
+    steps:
+      - name: Check secrets
+        id: check
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          if [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+            echo "::warning::Secrets UNITY_EMAIL and UNITY_PASSWORD are not available. Skipping UI screenshots. See docs/BUILD.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Free disk space
+        if: steps.check.outputs.ready == 'true'
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          tool-cache: false
+
+      - uses: actions/checkout@v7
+        if: steps.check.outputs.ready == 'true'
+        with:
+          lfs: false
+
+      # Only the first two clips are needed (the puzzles the run plays); thumbnails are plain git files.
+      - name: Pull the first clips from LFS
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          files=$(python3 -c "import json;l=json.load(open('Assets/StreamingAssets/Levels/levels.json'))['levels'][:2];print(','.join('Assets/StreamingAssets/Levels/'+x['file'] for x in l))")
+          echo "LFS include: $files"
+          git lfs pull --include="$files"
+
+      - name: Restore Library cache
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/cache@v6
+        with:
+          path: Library
+          key: Library-StandaloneLinux64-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-StandaloneLinux64-
+
+      - name: Build Linux player
+        if: steps.check.outputs.ready == 'true'
+        uses: game-ci/unity-builder@v6
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          cliVersion: v0.1.72
+          targetPlatform: StandaloneLinux64
+          buildMethod: Snaploop.EditorTools.UIScreenshotBuild.BuildFromCommandLine
+          buildName: Snaploop
+          versioning: None
+
+      - name: Install Xvfb, Mesa and ffmpeg
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth ffmpeg libgl1 libgl1-mesa-dri libglu1-mesa \
+            libxcursor1 libxrandr2 libxi6 libxinerama1 libxss1 > /dev/null
+
+      # Linux players cannot decode H.264, so the played clips are re-encoded to VP8 WebM inside the
+      # built player only (the repo and the APK keep the MP4s).
+      - name: Prepare player
+        id: player
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" build
+          exe=$(find build -name '*.x86_64' -type f | head -n 1)
+          [ -n "$exe" ] || { echo "::error::No Linux player found under build/"; find build -maxdepth 3; exit 1; }
+          chmod +x "$exe"
+          levels="${exe%.x86_64}_Data/StreamingAssets/Levels"
+          python3 - "$levels" <<'EOF'
+          import json, subprocess, sys
+          levels_dir = sys.argv[1]
+          manifest = levels_dir + "/levels.json"
+          data = json.load(open(manifest))
+          for level in data["levels"][:2]:
+              src = "Assets/StreamingAssets/Levels/" + level["file"]
+              out = level["id"] + ".webm"
+              subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, "-an", "-c:v", "libvpx", "-b:v", "2M",
+                              "-deadline", "realtime", "-cpu-used", "8", levels_dir + "/" + out], check=True)
+              level["file"] = out
+              print("re-encoded", src, "->", out)
+          json.dump(data, open(manifest, "w"), indent=2)
+          EOF
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
+
+      - name: Capture screenshots
+        if: steps.check.outputs.ready == 'true'
+        env:
+          EXE: ${{ steps.player.outputs.exe }}
+        run: |
+          mkdir -p screenshots logs
+          for size in $SIZES; do
+            w=${size%x*}; h=${size#*x}
+            out="$PWD/screenshots/$size"
+            mkdir -p "$out"
+            # Fresh HOME per run: first-launch state (onboarding, ad grace) every time.
+            fresh_home=$(mktemp -d)
+            echo "::group::Player $size"
+            HOME="$fresh_home" timeout 480 xvfb-run -a -s "-screen 0 ${w}x${h}x24" "$EXE" \
+              -screen-fullscreen 0 -screen-width "$w" -screen-height "$h" -force-glcore \
+              -logFile "logs/player-$size.log" -snaploop-screenshots "$out" -snaploop-size "$size" \
+              || echo "::warning::Player exited with status $? at $size (see logs/player-$size.log)"
+            grep '\[Screenshots\]' "logs/player-$size.log" || true
+            echo "::endgroup::"
+          done
+          count=$(find screenshots -name '*.png' | wc -l)
+          {
+            echo "### UI screenshots"
+            echo ""
+            echo "Download the **ui-screenshots** artifact from this run's summary page."
+            echo ""
+            for size in $SIZES; do
+              echo "- $size: $(ls screenshots/$size 2>/dev/null | tr '\n' ' ')"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$count" -gt 0 ] || { echo "::error::No screenshots were captured."; tail -n 80 logs/*.log; exit 1; }
+
+      - name: Upload screenshots
+        if: always() && steps.check.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-screenshots
+          path: |
+            screenshots/
+            logs/
+          if-no-files-found: warn
+          retention-days: 30

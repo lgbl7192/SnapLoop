@@ -1,0 +1,352 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using Snaploop.Core;
+using Snaploop.Levels;
+using Snaploop.Monetization;
+using Snaploop.Puzzle;
+using Snaploop.UI;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace Snaploop.Dev
+{
+    /// <summary>
+    /// Walks the app through every screen state and saves a PNG of each, for the ui-screenshots workflow.
+    /// Inert unless the player is launched with <c>-snaploop-screenshots &lt;dir&gt;</c> (optionally
+    /// <c>-snaploop-size 1080x2400</c>). Development builds and the editor only.
+    ///
+    /// It presses the real buttons (found by GameObject name) so the shots show the normal flow, and
+    /// simulates a phone cutout and gesture bar through <see cref="UILayout.SimulatedSafeArea"/>.
+    /// A step whose button or screen is missing is logged and skipped; the run never blocks.
+    /// </summary>
+    public sealed class UIScreenshotRunner : MonoBehaviour
+    {
+        const string DirArg = "-snaploop-screenshots";
+        const string SizeArg = "-snaploop-size";
+        const float TopInset = 0.055f, BottomInset = 0.02f;
+        const float WatchdogSec = 360f;
+
+        string outDir;
+        int shots;
+        bool waitOk;
+        readonly List<string> skipped = new List<string>();
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void Install()
+        {
+            string dir = ReadArg(DirArg);
+            if (string.IsNullOrEmpty(dir)) return;
+            UILayout.SimulatedSafeArea = Rect.MinMaxRect(0f, BottomInset, 1f, 1f - TopInset);
+            var go = new GameObject("UIScreenshotRunner");
+            DontDestroyOnLoad(go);
+            go.AddComponent<UIScreenshotRunner>().outDir = dir;
+        }
+
+        IEnumerator Start()
+        {
+            Directory.CreateDirectory(outDir);
+            StartCoroutine(Watchdog());
+            yield return ApplySize();
+            BuildPhoneChrome();
+
+            yield return Wait(0.3f);
+            yield return Shot("splash");
+
+            // First launch: onboarding over the first puzzle.
+            yield return WaitFor(() => FindActive("Onboarding", "Canvas") != null, 25f);
+            if (waitOk)
+            {
+                yield return Wait(1.1f);
+                yield return Shot("onboarding");
+                Click("Go", "Onboarding");
+            }
+            else Skip("onboarding");
+
+            var board = FindAnyObjectByType<PuzzleBoard>();
+            yield return WaitFor(() => board != null && board.IsPlaying, 30f);
+            yield return Wait(0.8f);
+            for (int i = 0; i < 3 && board.IsPlaying; i++)
+            {
+                board.ApplyHint();
+                yield return Wait(0.12f);
+            }
+            yield return Wait(1.2f);
+            yield return Shot("hud");
+
+            // Hint: rewarded test ad, then the hint piece flying home.
+            yield return WaitFor(() => FindButton("Hint", "Hud") != null, 12f);
+            if (Click("Hint", "Hud"))
+            {
+                yield return WaitFor(() => FindActive("TestAd") != null, 4f);
+                if (waitOk)
+                {
+                    yield return Wait(1.2f);
+                    yield return Shot("ad-rewarded");
+                    yield return WaitFor(() => FindButton("Claim", "TestAd") != null, 12f);
+                    Click("Claim", "TestAd");
+                }
+                yield return Wait(0.2f);
+                yield return Shot("hint");
+                yield return Wait(1f);
+            }
+            else Skip("hint");
+
+            if (Click("Settings", "Hud"))
+            {
+                yield return Wait(0.6f);
+                yield return Shot("settings");
+                Click("Close", "Settings");
+                yield return Wait(0.3f);
+            }
+            else Skip("settings");
+
+            bool devShot = false;
+            if (Click("Dev", "Hud"))
+            {
+                yield return Wait(0.6f);
+                yield return Shot("dev-menu");
+                devShot = true;
+                Click("Close", "DevMenu");
+                yield return Wait(0.3f);
+            }
+
+            // Finish with hints so the win card shows real stats, and force the next interstitial.
+            var ads = MonetizationRuntime.Instance != null ? MonetizationRuntime.Instance.Ads : null;
+            if (ads != null) ads.ForceNextInterstitial = true;
+            for (int guard = 0; guard < 80 && board.IsPlaying; guard++)
+            {
+                board.ApplyHint();
+                yield return Wait(0.1f);
+            }
+            yield return WaitFor(() => FindActive("Win", "SafeArea") != null, 20f);
+            if (waitOk)
+            {
+                yield return Wait(1.6f);
+                yield return Shot("win");
+                Click("Next", "Win");
+                yield return WaitFor(() => FindActive("TestAd") != null, 6f);
+                if (waitOk)
+                {
+                    yield return Wait(2.6f);
+                    yield return Shot("ad-interstitial");
+                    Click("Close", "TestAd");
+                }
+                else Skip("ad-interstitial");
+            }
+            else Skip("win");
+
+            // A few cleared levels so the hub shows stars and the next-up state.
+            var levels = LevelCatalog.Levels;
+            if (levels.Count > 3)
+            {
+                Progress.RecordClear(levels[1].id, 3);
+                Progress.RecordClear(levels[2].id, 2);
+            }
+            yield return WaitFor(() => FindButton("Back", "Hud") != null, 10f);
+            yield return Wait(0.5f);
+            Click("Back", "Hud");
+            yield return WaitFor(() => FindActive("LevelSelect", "SafeArea") != null, 10f);
+            yield return Wait(2.5f);
+            yield return Shot("level-select");
+
+            if (ads != null)
+            {
+                ads.DevSkipGrace();
+                yield return WaitFor(() => FindActive("TestBanner") != null, 8f);
+                if (waitOk)
+                {
+                    yield return Wait(0.6f);
+                    yield return Shot("level-select-banner");
+                }
+                else Skip("level-select-banner");
+            }
+
+            if (!devShot)
+            {
+                if (Click("Dev", "LevelSelect") || Click("Dev", "Header"))
+                {
+                    yield return Wait(0.6f);
+                    yield return Shot("dev-menu");
+                    Click("Close", "DevMenu");
+                    yield return Wait(0.3f);
+                }
+                else Skip("dev-menu");
+            }
+
+            // Remove Ads in Settings opens the test store.
+            if (Click("Settings", "LevelSelect") || Click("Settings", "Header"))
+            {
+                yield return Wait(0.5f);
+                if (ClickLabel("Remove Ads", "Settings"))
+                {
+                    yield return WaitFor(() => FindActive("TestStore") != null, 8f);
+                    if (waitOk)
+                    {
+                        yield return Wait(0.6f);
+                        yield return Shot("store");
+                        Click("Cancel", "TestStore");
+                    }
+                    else Skip("store");
+                }
+                else Skip("store");
+                yield return Wait(0.5f);
+                Click("Close", "Settings");
+            }
+            else Skip("store");
+
+            Finish(0);
+        }
+
+        // ------------------------------------------------------------ steps
+
+        IEnumerator ApplySize()
+        {
+            string size = ReadArg(SizeArg);
+            if (string.IsNullOrEmpty(size)) yield break;
+            var parts = size.ToLowerInvariant().Split('x');
+            if (parts.Length != 2 || !int.TryParse(parts[0], out int w) || !int.TryParse(parts[1], out int h)) yield break;
+            Screen.SetResolution(w, h, FullScreenMode.Windowed);
+            float t0 = Time.realtimeSinceStartup;
+            while ((Screen.width != w || Screen.height != h) && Time.realtimeSinceStartup - t0 < 5f) yield return null;
+            Debug.Log("[Screenshots] screen " + Screen.width + "x" + Screen.height + " (wanted " + size + ")");
+        }
+
+        IEnumerator Shot(string name)
+        {
+            yield return new WaitForEndOfFrame();
+            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+            File.WriteAllBytes(Path.Combine(outDir, name + ".png"), tex.EncodeToPNG());
+            Destroy(tex);
+            shots++;
+            Debug.Log("[Screenshots] saved " + name + ".png");
+        }
+
+        static IEnumerator Wait(float seconds)
+        {
+            float end = Time.realtimeSinceStartup + seconds;
+            while (Time.realtimeSinceStartup < end) yield return null;
+        }
+
+        IEnumerator WaitFor(Func<bool> condition, float timeout)
+        {
+            float end = Time.realtimeSinceStartup + timeout;
+            waitOk = false;
+            while (Time.realtimeSinceStartup < end)
+            {
+                if (condition()) { waitOk = true; yield break; }
+                yield return null;
+            }
+        }
+
+        IEnumerator Watchdog()
+        {
+            yield return Wait(WatchdogSec);
+            Debug.LogError("[Screenshots] watchdog: giving up after " + WatchdogSec + " s");
+            Finish(2);
+        }
+
+        void Skip(string shot)
+        {
+            skipped.Add(shot);
+            Debug.LogWarning("[Screenshots] skipped " + shot);
+        }
+
+        void Finish(int code)
+        {
+            Debug.Log("[Screenshots] done: " + shots + " saved" + (skipped.Count > 0 ? ", skipped: " + string.Join(", ", skipped) : ""));
+            Application.Quit(code);
+        }
+
+        // ------------------------------------------------------------ finding UI
+
+        static bool HasAncestor(Transform t, string ancestor, bool directParentOnly)
+        {
+            if (string.IsNullOrEmpty(ancestor)) return true;
+            for (var p = t.parent; p != null; p = p.parent)
+            {
+                if (p.name == ancestor) return true;
+                if (directParentOnly) return false;
+            }
+            return false;
+        }
+
+        /// <summary>Active object called <paramref name="name"/> directly under <paramref name="parent"/> (any parent if null).</summary>
+        static GameObject FindActive(string name, string parent = null)
+        {
+            foreach (var rt in FindObjectsByType<RectTransform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                if (rt.name == name && rt.gameObject.activeInHierarchy && HasAncestor(rt, parent, true))
+                    return rt.gameObject;
+            return null;
+        }
+
+        static Button FindButton(string name, string ancestor)
+        {
+            foreach (var b in FindObjectsByType<Button>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                if (b.name == name && b.isActiveAndEnabled && b.interactable && HasAncestor(b.transform, ancestor, false))
+                    return b;
+            return null;
+        }
+
+        static bool Click(string name, string ancestor)
+        {
+            var b = FindButton(name, ancestor);
+            if (b == null)
+            {
+                Debug.Log("[Screenshots] no button " + ancestor + "/" + name);
+                return false;
+            }
+            b.onClick.Invoke();
+            return true;
+        }
+
+        static bool ClickLabel(string labelPrefix, string ancestor)
+        {
+            foreach (var b in FindObjectsByType<Button>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (!b.isActiveAndEnabled || !b.interactable || !HasAncestor(b.transform, ancestor, false)) continue;
+                var label = b.GetComponentInChildren<Text>();
+                if (label != null && label.text.StartsWith(labelPrefix, StringComparison.Ordinal))
+                {
+                    b.onClick.Invoke();
+                    return true;
+                }
+            }
+            Debug.Log("[Screenshots] no button labelled " + labelPrefix);
+            return false;
+        }
+
+        // ------------------------------------------------------------ simulated phone chrome
+
+        /// <summary>A punch-hole camera, clock and gesture handle drawn in the simulated insets.</summary>
+        void BuildPhoneChrome()
+        {
+            var go = new GameObject("PhoneChrome", typeof(RectTransform));
+            DontDestroyOnLoad(go);
+            var canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 32000;
+            var root = (RectTransform)go.transform;
+            float w = Screen.width, h = Screen.height, top = h * TopInset, bottom = h * BottomInset;
+
+            var hole = UIFactory.Image("Camera", root, Color.black, UIFactory.Circle);
+            UIFactory.Place(hole.rectTransform, new Vector2(0.5f, 1f), new Vector2(top * 0.36f, top * 0.36f), new Vector2(0f, -top * 0.32f));
+            var clock = UIFactory.Label("Clock", root, "9:41", Mathf.RoundToInt(top * 0.3f), new Color(1f, 1f, 1f, 0.85f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            UIFactory.Place(clock.rectTransform, new Vector2(0f, 1f), new Vector2(w * 0.3f, top * 0.6f), new Vector2(w * 0.06f, -top * 0.2f));
+            var handle = UIFactory.Image("GestureHandle", root, new Color(1f, 1f, 1f, 0.7f), UIFactory.Circle);
+            handle.type = Image.Type.Simple;
+            UIFactory.Place(handle.rectTransform, new Vector2(0.5f, 0f), new Vector2(w * 0.3f, Mathf.Max(3f, bottom * 0.16f)), new Vector2(0f, bottom * 0.42f));
+        }
+
+        static string ReadArg(string name)
+        {
+            var args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+                if (args[i] == name) return args[i + 1];
+            return null;
+        }
+    }
+}
+#endif

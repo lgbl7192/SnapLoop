@@ -98,7 +98,7 @@ namespace Snaploop.UI
         void ApplyBottomInset()
         {
             float px = GameServices.LevelSelectBottomInset;
-            float units = px > 0f ? Mathf.Max(0f, px - Screen.safeArea.yMin) / UILayout.Scale : 0f;
+            float units = px > 0f ? Mathf.Max(0f, px - UILayout.SafeArea.yMin) / UILayout.Scale : 0f;
             viewport.offsetMin = new Vector2(viewport.offsetMin.x, units);
         }
 
