@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace Snaploop.Monetization
 {
     /// <summary>
-    /// Monetization UI on its own canvas above the game: toasts, a busy blocker, the TEST AD overlay
-    /// and the TEST STORE dialog. Built lazily on first use.
+    /// Monetization UI on its own canvas above the game: toasts, a busy blocker, the TEST AD overlay,
+    /// the TEST BANNER strip and the TEST STORE dialog. Built lazily on first use.
     /// </summary>
     public sealed class MonetizationOverlay
     {
@@ -32,9 +32,15 @@ namespace Snaploop.Monetization
         RectTransform adProgress;
         Button adClose, adClaim;
         Text adCloseLabel;
-        Action<AdShowResult> adDone;
+        AdShowHandle adHandle;
         bool adRewarded;
         float adDuration, adElapsed;
+
+        const float TestBannerHeight = 150f;
+        RectTransform bannerRoot;
+        Text bannerText;
+        string bannerPlacement;
+        int bannerLoads;
 
         RectTransform storeRoot;
         Text storeTitle, storePrice;
@@ -71,29 +77,64 @@ namespace Snaploop.Monetization
 
         // ------------------------------------------------------------ test ad
 
-        /// <param name="rewarded">Rewarded: the reward needs the full <paramref name="seconds"/>. Interstitial: closable after <paramref name="seconds"/>.</param>
-        public void ShowTestAd(bool rewarded, string placement, float seconds, Action<AdShowResult> onDone)
+        /// <param name="seconds">Rewarded: the reward needs the full duration. Interstitial: closable after it.</param>
+        public void ShowTestAd(AdShowHandle handle, float seconds)
         {
             Build();
-            adDone = onDone;
-            adRewarded = rewarded;
+            adHandle = handle;
+            adRewarded = handle.Format == AdFormat.Rewarded;
             adDuration = Mathf.Max(0.01f, seconds);
             adElapsed = 0f;
-            adKind.text = (rewarded ? "Rewarded ad" : "Interstitial ad") + "\nplacement: " + (string.IsNullOrEmpty(placement) ? "(default)" : placement);
-            adCloseLabel.text = rewarded ? "Close (no hint)" : "Close";
-            adClose.gameObject.SetActive(rewarded);
+            adKind.text = (adRewarded ? "Rewarded ad" : "Interstitial ad") + "\nplacement: " +
+                          (string.IsNullOrEmpty(handle.Placement) ? "(default)" : handle.Placement);
+            adCloseLabel.text = adRewarded ? "Close (no reward)" : "Close";
+            adClose.gameObject.SetActive(adRewarded);
             adClaim.gameObject.SetActive(false);
             adRoot.SetAsLastSibling();
             adRoot.gameObject.SetActive(true);
             UpdateAd();
+            handle.Displayed();
         }
 
-        void FinishAd(AdShowResult result)
+        void FinishAd(bool earned)
         {
             adRoot.gameObject.SetActive(false);
-            var cb = adDone;
-            adDone = null;
-            cb?.Invoke(result);
+            var h = adHandle;
+            adHandle = null;
+            if (h == null) return;
+            if (earned) h.Earned();
+            h.Closed();
+        }
+
+        // ------------------------------------------------------------ test banner
+
+        public float TestBannerHeightPixels => TestBannerHeight * UILayout.Scale;
+
+        public void ShowTestBanner(string placement)
+        {
+            Build();
+            bannerPlacement = placement;
+            bannerRoot.SetAsFirstSibling();
+            bannerRoot.gameObject.SetActive(true);
+            UpdateBannerText();
+        }
+
+        public void HideTestBanner()
+        {
+            if (bannerRoot != null) bannerRoot.gameObject.SetActive(false);
+        }
+
+        /// <summary>A banner load finished; the label shows the count so app-driven refreshes are visible.</summary>
+        public void RefreshTestBanner()
+        {
+            bannerLoads++;
+            if (bannerRoot != null && bannerRoot.gameObject.activeSelf) UpdateBannerText();
+        }
+
+        void UpdateBannerText()
+        {
+            bannerText.text = "TEST BANNER · " + (string.IsNullOrEmpty(bannerPlacement) ? "(default)" : bannerPlacement) +
+                              " · load #" + bannerLoads + "\nNot a real advertisement. Development build only.";
         }
 
         void UpdateAd()
@@ -104,7 +145,7 @@ namespace Snaploop.Monetization
             int left = Mathf.CeilToInt(adDuration - adElapsed);
             if (adRewarded)
             {
-                adCountdown.text = k < 1f ? "Hint unlocks in " + left + " s" : "Hint unlocked";
+                adCountdown.text = k < 1f ? "Reward in " + left + " s" : "Reward earned";
                 adClaim.gameObject.SetActive(k >= 1f);
                 adClose.gameObject.SetActive(k < 1f);
             }
@@ -153,6 +194,13 @@ namespace Snaploop.Monetization
             }
             if (IsAdShowing)
             {
+                // The show watchdog may have ended this show already.
+                if (adHandle == null || adHandle.IsFinished)
+                {
+                    adHandle = null;
+                    adRoot.gameObject.SetActive(false);
+                    return;
+                }
                 adElapsed += dt;
                 UpdateAd();
             }
@@ -178,6 +226,7 @@ namespace Snaploop.Monetization
             canvasGo.AddComponent<GraphicRaycaster>();
             root = (RectTransform)canvasGo.transform;
 
+            BuildBanner();
             BuildAd();
             BuildStore();
             BuildBusy();
@@ -204,6 +253,15 @@ namespace Snaploop.Monetization
             busyText = UIFactory.Label("Text", card.transform, "", 42, Palette.Text);
             UIFactory.Stretch(busyText.rectTransform, 30, 30, 10, 10);
             busyRoot.gameObject.SetActive(false);
+        }
+
+        void BuildBanner()
+        {
+            var bg = UIFactory.Image("TestBanner", root, TestYellow, null, raycast: true);
+            bannerRoot = UIFactory.Band(bg.rectTransform, 0f, TestBannerHeight);
+            bannerText = UIFactory.Label("Text", bannerRoot, "", 32, TestInk, TextAnchor.MiddleCenter, FontStyle.Bold);
+            UIFactory.Stretch(bannerText.rectTransform, 20, 20, 6, 6);
+            bannerRoot.gameObject.SetActive(false);
         }
 
         void BuildAd()
@@ -237,12 +295,11 @@ namespace Snaploop.Monetization
             adCountdown = UIFactory.Label("Countdown", adRoot, "", 40, Palette.Text);
             UIFactory.Place(adCountdown.rectTransform, new Vector2(0.5f, 0f), new Vector2(900, 70), new Vector2(0, 270));
 
-            adClose = UIFactory.Button("Close", adRoot, "Close", Palette.SurfaceHigh,
-                () => FinishAd(adRewarded ? AdShowResult.Skipped : AdShowResult.Completed), 40);
+            adClose = UIFactory.Button("Close", adRoot, "Close", Palette.SurfaceHigh, () => FinishAd(false), 40);
             UIFactory.Place((RectTransform)adClose.transform, new Vector2(0.5f, 0f), new Vector2(520, 130), new Vector2(0, 100));
             adCloseLabel = UIFactory.ButtonLabel(adClose);
 
-            adClaim = UIFactory.Button("Claim", adRoot, "Get hint", Palette.Accent, () => FinishAd(AdShowResult.Completed), 46);
+            adClaim = UIFactory.Button("Claim", adRoot, "Get reward", Palette.Rewarded, () => FinishAd(true), 46);
             UIFactory.Place((RectTransform)adClaim.transform, new Vector2(0.5f, 0f), new Vector2(520, 130), new Vector2(0, 100));
 
             adRoot.gameObject.SetActive(false);

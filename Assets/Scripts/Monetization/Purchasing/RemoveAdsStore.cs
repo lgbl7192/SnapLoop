@@ -3,7 +3,10 @@ using UnityEngine;
 
 namespace Snaploop.Monetization
 {
-    /// <summary>The Remove Ads product: Settings rows, purchase and restore flows, entitlement grant.</summary>
+    /// <summary>
+    /// The Remove Ads product: Settings rows, purchase and restore flows, entitlement grant.
+    /// It removes interstitials and banners; rewarded hint ads stay available because the player opts in.
+    /// </summary>
     public sealed class RemoveAdsStore
     {
         readonly MonetizationConfig config;
@@ -52,7 +55,7 @@ namespace Snaploop.Monetization
                 switch (outcome)
                 {
                     case PurchaseOutcome.Purchased:
-                        overlay.Toast("Ads removed. Thank you!");
+                        overlay.Toast("Thank you! No more ads between puzzles or banners. Hint ads stay optional.", 4f);
                         break;
                     case PurchaseOutcome.AlreadyOwned:
                         overlay.Toast(Entitlements.RemoveAds ? "You already own Remove Ads." : "You already own this. Restoring…");

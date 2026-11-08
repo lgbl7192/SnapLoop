@@ -13,17 +13,39 @@ MonoBehaviour:
   m_Name: MonetizationConfig
   m_EditorClassIdentifier: 
   adapter: 0
-  levelPlayAppKeyAndroid: 
-  rewardedAdUnitIdAndroid: 
-  interstitialAdUnitIdAndroid: 
+  levelPlayAndroid:
+    appKey: 
+    rewarded: 
+    interstitial: 
+    banner: 
+  levelPlayTestAndroid:
+    appKey: 25b63cf85
+    rewarded: syz3d8ekts22q0or
+    interstitial: h3xw38h9214adgxo
+    banner: 4fpetq4lhe5lsw3e
   hintPlacement: hint
-  betweenPuzzlesPlacement: between_puzzles
-  interstitialFreeLevels: 3
-  interstitialEveryNthWin: 2
-  interstitialMinIntervalSec: 60
-  rewardedLoadWaitSec: 4
-  grantHintWhenNoAd: 0
-  freeHintsWithRemoveAds: 1
+  nextLevelPlacement: next_level
+  levelSelectBannerPlacement: level_select
+  adRules:
+    interEnabled: 1
+    interGraceSessions: 2
+    interGraceLevels: 5
+    interMinLevelEnds: 3
+    interMinSeconds: 90
+    interAfterRewardedSeconds: 90
+    interMaxPerSession: 4
+    interMaxPerDay: 10
+    rageQuitWindowSeconds: 30
+    rageQuitCount: 2
+    rageQuitSuppressHours: 24
+    sessionTimeoutMinutes: 30
+    rewardedEnabled: 1
+    rewardedMaxPerSession: 8
+    rewardedMaxPerDay: 20
+    bannerEnabled: 1
+    bannerGraceDays: 2
+    bannerGraceSessions: 5
+    bannerRefreshSeconds: 60
   testRewardedSeconds: 5
   testInterstitialCloseDelaySec: 2
   removeAdsProductId: remove_ads

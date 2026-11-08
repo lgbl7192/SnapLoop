@@ -7,8 +7,8 @@ namespace Snaploop.Monetization
 {
     /// <summary>
     /// Installs ads and the Remove Ads purchase before the first scene loads, and hosts their
-    /// coroutines, main-thread dispatch and overlay UI. Gameplay never references this; it only
-    /// sees the gates registered on <see cref="GameServices"/>.
+    /// coroutines, main-thread dispatch, app lifecycle callbacks and overlay UI. Gameplay never
+    /// references this; it only sees the gates registered on <see cref="GameServices"/>.
     /// </summary>
     public sealed class MonetizationRuntime : MonoBehaviour
     {
@@ -18,7 +18,8 @@ namespace Snaploop.Monetization
 
         public MonetizationConfig Config { get; private set; }
         public MonetizationOverlay Overlay { get; private set; }
-        public AdsController Ads { get; private set; }
+        public IConsentProvider Consent { get; private set; }
+        public AdsService Ads { get; private set; }
         public RemoveAdsStore RemoveAds { get; private set; }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -41,41 +42,50 @@ namespace Snaploop.Monetization
             Instance = this;
             Config = MonetizationConfig.Load();
             Overlay = new MonetizationOverlay(transform);
+            Consent = new StubConsentProvider(msg => Overlay.Toast(msg));
 
-            IAdsService network = CreateAdsService(Config);
-            Ads = new AdsController(network, Config, Overlay, this);
+            IAdNetwork network = CreateAdNetwork(Config);
+            Ads = new AdsService(network, Config, Overlay, Consent, new StubRemoteConfigProvider(), new DebugLogAdTelemetry());
             RemoveAds = new RemoveAdsStore(Config, CreatePurchaseBackend(Config), Overlay);
             Debug.Log("[Monetization] Ads: " + network.Name + ", store: " + RemoveAds.Backend.Name + ", Remove Ads owned: " + Entitlements.RemoveAds);
 
-            GameServices.Hints = new RewardedHintGate(Ads);
-            GameServices.BetweenPuzzles = new InterstitialGate(Ads);
+            GameServices.Hints = new RewardedHintGate(Ads, Config.hintPlacement);
+            GameServices.BetweenPuzzles = new InterstitialGate(Ads, Config.nextLevelPlacement);
+            Ads.Changed += GameServices.NotifyHintOfferChanged;
             Entitlements.Changed += GameServices.NotifySettingsChanged;
+            Consent.Changed += GameServices.NotifySettingsChanged;
 
-            Ads.Initialize();
             RemoveAds.Initialize();
+            GameServices.AddSettingsEntry("Privacy choices",
+                () => Consent.ShowPrivacyOptions(null),
+                () => Consent.PrivacyOptionsRequired);
+            Ads.Start();
             if (Debug.isDebugBuild) RegisterDevMenu();
         }
 
-        IAdsService CreateAdsService(MonetizationConfig c)
+        IAdNetwork CreateAdNetwork(MonetizationConfig c)
         {
             bool dev = Debug.isDebugBuild;
             switch (c.adapter)
             {
                 case AdsAdapterMode.Disabled:
-                    return new NoAdsService();
+                    return new NoAdNetwork();
                 case AdsAdapterMode.TestAds:
-                    if (dev) return new TestAdsService(this, Overlay);
+                    if (dev) return CreateTestNetwork(c);
                     Debug.LogWarning("[Monetization] Test ads are never used in release builds. Running without ads.");
-                    return new NoAdsService();
+                    return new NoAdNetwork();
                 case AdsAdapterMode.LevelPlay:
-                    return new LevelPlayAdsService(this);
+                    return new LevelPlayAdNetwork(this, c.levelSelectBannerPlacement);
                 default:
-                    if (dev) return new TestAdsService(this, Overlay);
-                    if (LevelPlayAdsService.IsConfigured(c)) return new LevelPlayAdsService(this);
+                    if (dev) return CreateTestNetwork(c);
+                    if (LevelPlayAdNetwork.IsConfigured(c.LevelPlayIds)) return new LevelPlayAdNetwork(this, c.levelSelectBannerPlacement);
                     Debug.LogWarning("[Monetization] No ad network configured for this release build. Running without ads; hints are free.");
-                    return new NoAdsService();
+                    return new NoAdNetwork();
             }
         }
+
+        TestAdNetwork CreateTestNetwork(MonetizationConfig c) =>
+            new TestAdNetwork(this, Overlay, c.testRewardedSeconds, c.testInterstitialCloseDelaySec);
 
         IPurchaseBackend CreatePurchaseBackend(MonetizationConfig c)
         {
@@ -101,8 +111,16 @@ namespace Snaploop.Monetization
                 () => "Force interstitial on next Next: " + (Ads.ForceNextInterstitial ? "on" : "off"),
                 () => Ads.ForceNextInterstitial = !Ads.ForceNextInterstitial);
             GameServices.AddDevMenuEntry(
-                () => "Test ads: " + (TestAdsService.SimulateNoFill ? "no fill" : "fill"),
-                () => TestAdsService.SimulateNoFill = !TestAdsService.SimulateNoFill);
+                () => "Test ads: " + (TestAdNetwork.SimulateNoFill ? "no fill" : "fill"),
+                () => TestAdNetwork.SimulateNoFill = !TestAdNetwork.SimulateNoFill);
+            GameServices.AddDevMenuEntry(() => Ads.DevLedgerLabel, Ads.DevSkipGrace);
+            GameServices.AddDevMenuEntry(() => "Reset ad ledger (fresh install)", Ads.DevResetLedger);
+            if (Consent is StubConsentProvider stub)
+            {
+                GameServices.AddDevMenuEntry(
+                    () => "Privacy choices row: " + (stub.PrivacyOptionsRequired ? "shown" : "hidden") + " (consent stub)",
+                    () => stub.PrivacyOptionsRequired = !stub.PrivacyOptionsRequired);
+            }
         }
 
         void Update()
@@ -117,8 +135,14 @@ namespace Snaploop.Monetization
                 }
                 try { next(); } catch (Exception e) { Debug.LogException(e); }
             }
-            Overlay.Tick(Time.unscaledDeltaTime);
+            float dt = Time.unscaledDeltaTime;
+            Ads.Tick(dt);
+            Overlay.Tick(dt);
         }
+
+        void OnApplicationPause(bool paused) => Ads?.OnApplicationPause(paused);
+
+        void OnApplicationQuit() => Ads?.OnApplicationQuit();
 
         void OnDestroy()
         {

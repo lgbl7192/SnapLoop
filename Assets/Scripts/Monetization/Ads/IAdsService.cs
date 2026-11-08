@@ -2,52 +2,25 @@ using System;
 
 namespace Snaploop.Monetization
 {
-    public enum AdShowResult
-    {
-        /// <summary>Rewarded: the reward was earned. Interstitial: the ad was shown and closed.</summary>
-        Completed,
-        /// <summary>The player closed a rewarded ad before earning the reward.</summary>
-        Skipped,
-        /// <summary>Nothing was shown (not loaded, no fill, display error).</summary>
-        Failed,
-    }
-
     /// <summary>
-    /// One ad network or mediation SDK. Implementations only load and show; the rules about
-    /// when an ad may appear live in <see cref="AdsController"/>, which is the only caller.
-    /// Callbacks must be invoked exactly once, on the main thread.
+    /// What the game asks of ads. Every rule (caps, grace, cooldowns, consent, Remove Ads) is applied
+    /// behind this interface, so callers never need to know them.
     /// </summary>
     public interface IAdsService
     {
-        string Name { get; }
-
-        /// <summary>False when the adapter can never show anything (no SDK, no ids). Hints are then free.</summary>
+        /// <summary>False when this build has no ad network (hints are then free).</summary>
         bool ServesAds { get; }
 
-        void Initialize(MonetizationConfig config, Action<bool> onDone);
+        /// <summary>True when a rewarded offer may be shown right now: allowed by the rules and an ad is loaded.</summary>
+        bool IsRewardedReady(string placement);
 
-        bool IsRewardedReady { get; }
-        bool IsInterstitialReady { get; }
+        /// <summary>Show a rewarded ad. <paramref name="onDone"/> gets true only if the player watched to the end.</summary>
+        void ShowRewarded(string placement, Action<bool> onDone);
 
-        /// <summary>Start loading if nothing is loaded or loading. Safe to call repeatedly.</summary>
-        void LoadRewarded();
-        void LoadInterstitial();
+        /// <summary>Show an interstitial if every rule allows it and one is already loaded; never waits for a load.</summary>
+        void MaybeShowInterstitial(string placement, Action onDone);
 
-        void ShowRewarded(string placement, Action<AdShowResult> onDone);
-        void ShowInterstitial(string placement, Action<AdShowResult> onDone);
-    }
-
-    /// <summary>No network: nothing loads, nothing shows.</summary>
-    public sealed class NoAdsService : IAdsService
-    {
-        public string Name => "None";
-        public bool ServesAds => false;
-        public void Initialize(MonetizationConfig config, Action<bool> onDone) => onDone(true);
-        public bool IsRewardedReady => false;
-        public bool IsInterstitialReady => false;
-        public void LoadRewarded() { }
-        public void LoadInterstitial() { }
-        public void ShowRewarded(string placement, Action<AdShowResult> onDone) => onDone(AdShowResult.Failed);
-        public void ShowInterstitial(string placement, Action<AdShowResult> onDone) => onDone(AdShowResult.Failed);
+        /// <summary>Raised when rewarded readiness may have changed (an ad loaded, a cap was reached, Remove Ads bought).</summary>
+        event Action Changed;
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Snaploop.Monetization
@@ -14,9 +15,29 @@ namespace Snaploop.Monetization
         Disabled = 3,
     }
 
+    /// <summary>One LevelPlay app and its ad units.</summary>
+    [Serializable]
+    public sealed class AdUnitIds
+    {
+        [Tooltip("LevelPlay app key (LevelPlay dashboard > Apps).")]
+        public string appKey = "";
+        [Tooltip("Rewarded ad unit id (hints).")]
+        public string rewarded = "";
+        [Tooltip("Interstitial ad unit id (Next after a win).")]
+        public string interstitial = "";
+        [Tooltip("Banner ad unit id (level select). Turn auto refresh off for this unit in the dashboard; the game refreshes it.")]
+        public string banner = "";
+
+        /// <summary>An app key plus at least one ad unit.</summary>
+        public bool IsComplete =>
+            !string.IsNullOrEmpty(appKey) &&
+            (!string.IsNullOrEmpty(rewarded) || !string.IsNullOrEmpty(interstitial) || !string.IsNullOrEmpty(banner));
+    }
+
     /// <summary>
-    /// Every ad/IAP id and pacing rule in one asset: <c>Assets/Resources/Monetization/MonetizationConfig.asset</c>.
-    /// If the asset is missing, the defaults below are used.
+    /// Every ad/IAP id and ad rule in one asset: <c>Assets/Resources/Monetization/MonetizationConfig.asset</c>.
+    /// If the asset is missing, the defaults below are used. The ad rules are checked against the code
+    /// defaults in <see cref="AdRules"/>: a value that is out of range or would allow more ads is ignored.
     /// </summary>
     [CreateAssetMenu(menuName = "Snaploop/Monetization Config", fileName = "MonetizationConfig")]
     public sealed class MonetizationConfig : ScriptableObject
@@ -26,38 +47,25 @@ namespace Snaploop.Monetization
         [Header("Ads network")]
         public AdsAdapterMode adapter = AdsAdapterMode.Auto;
 
-        [Tooltip("LevelPlay app key for the Android app (LevelPlay dashboard > Apps). Empty = LevelPlay is not used.")]
-        public string levelPlayAppKeyAndroid = "";
+        [Tooltip("Release ids for the Android app. Used by release builds only. Empty = LevelPlay is not used.")]
+        public AdUnitIds levelPlayAndroid = new AdUnitIds();
 
-        [Tooltip("LevelPlay ad unit id of the rewarded ad unit used for hints.")]
-        public string rewardedAdUnitIdAndroid = "";
+        [Tooltip("Ids used by every development build, whatever is set above. Defaults are LevelPlay's public demo ids.")]
+        public AdUnitIds levelPlayTestAndroid = new AdUnitIds
+        {
+            appKey = "25b63cf85",
+            rewarded = "syz3d8ekts22q0or",
+            interstitial = "h3xw38h9214adgxo",
+            banner = "4fpetq4lhe5lsw3e",
+        };
 
-        [Tooltip("LevelPlay ad unit id of the interstitial ad unit shown between puzzles.")]
-        public string interstitialAdUnitIdAndroid = "";
-
-        [Tooltip("Placement names reported to the network (optional, for reporting/capping on the dashboard).")]
+        [Header("Placements (reported to the network)")]
         public string hintPlacement = "hint";
-        public string betweenPuzzlesPlacement = "between_puzzles";
+        public string nextLevelPlacement = "next_level";
+        public string levelSelectBannerPlacement = "level_select";
 
-        [Header("Interstitial pacing (between puzzles only)")]
-        [Tooltip("No interstitial after finishing any of the first N levels in play order.")]
-        [Min(0)] public int interstitialFreeLevels = 3;
-
-        [Tooltip("At most one interstitial every N wins (counted after the free levels).")]
-        [Min(1)] public int interstitialEveryNthWin = 2;
-
-        [Tooltip("Minimum seconds between two interstitials.")]
-        [Min(0)] public float interstitialMinIntervalSec = 60f;
-
-        [Header("Rewarded hints")]
-        [Tooltip("How long the hint button waits for a rewarded ad to load before giving up.")]
-        [Min(0)] public float rewardedLoadWaitSec = 4f;
-
-        [Tooltip("Grant the hint anyway when no rewarded ad can be shown (no fill, offline).")]
-        public bool grantHintWhenNoAd = false;
-
-        [Tooltip("Players who bought Remove Ads get hints without watching an ad.")]
-        public bool freeHintsWithRemoveAds = true;
+        [Header("Ad rules (can only be made stricter than the code defaults)")]
+        public AdRules adRules = new AdRules();
 
         [Header("Test ads (editor and development builds only)")]
         [Min(1)] public float testRewardedSeconds = 5f;
@@ -72,6 +80,9 @@ namespace Snaploop.Monetization
 
         [Tooltip("Editor and development builds use the built-in fake store (no money, no Play account). Turn off to test real Google Play billing from a development build.")]
         public bool fakeStoreInDevelopmentBuilds = true;
+
+        /// <summary>Development builds always use the test ids so a debug build can never serve live ads.</summary>
+        public AdUnitIds LevelPlayIds => Debug.isDebugBuild ? levelPlayTestAndroid : levelPlayAndroid;
 
         public static MonetizationConfig Load()
         {
