@@ -145,7 +145,9 @@ jobs:
               -screen-fullscreen 0 -screen-width "$w" -screen-height "$h" -force-glcore \
               -logFile "$PWD/logs/player-$size.log" -snaploop-screenshots "$out" -snaploop-size "$size" \
               || echo "::warning::Player exited with status $? at $size (see logs/player-$size.log)"
-            grep -A6 -E '\[Screenshots\]|Exception' "logs/player-$size.log" || true
+            # Step results, plus a few stack lines under each exception the runner forwarded.
+            grep -E -A4 '^\[Screenshots\] (exception|.* threw)' "logs/player-$size.log" || true
+            grep -E '^\[Screenshots\] (saved|skipped|no button|done|screen|watchdog)' "logs/player-$size.log" || true
             echo "::endgroup::"
           done
           count=$(find screenshots -name '*.png' | wc -l)
