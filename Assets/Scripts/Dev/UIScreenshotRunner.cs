@@ -68,6 +68,7 @@ namespace Snaploop.Dev
             yield return Step("level-select-banner", Banner(), 20f);
             yield return Step("dev-menu", HubDevMenu(), 15f);
             yield return Step("store", Store(), 25f);
+            yield return Step("packs", Packs(), 20f);
             Finish(0);
         }
 
@@ -235,6 +236,19 @@ namespace Snaploop.Dev
             else Skip("store");
             yield return Wait(0.5f);
             Click("Close", "Settings");
+        }
+
+        // The hub's Packs button opens the theme packs screen.
+        IEnumerator Packs()
+        {
+            yield return Wait(0.3f);
+            if (!Click("Packs", "LevelSelect")) { Skip("packs"); yield break; }
+            yield return WaitFor(() => FindActive("Packs", "SafeArea") != null, 6f);
+            if (!waitOk) { Skip("packs"); yield break; }
+            yield return Wait(0.8f);
+            yield return Shot("packs");
+            Click("Back", "Packs");
+            yield return Wait(0.3f);
         }
 
         // ------------------------------------------------------------ steps

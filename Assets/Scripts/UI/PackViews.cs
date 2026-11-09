@@ -181,7 +181,7 @@ namespace Snaploop.UI
                 return;
             }
             if (!PackAccess.TryUnlockWithTokens(pack)) return;
-            Celebrate(pack);
+            Celebrate(pack, toast: true);
         }
 
         public static void Buy(PackInfo pack)
@@ -190,7 +190,8 @@ namespace Snaploop.UI
             if (pack == null || !pack.CanBuy || store == null || PackAccess.IsUnlocked(pack)) return;
             store.Buy(pack.productId, pack.DisplayTitle, owned =>
             {
-                if (owned) Celebrate(pack);
+                // The store already thanks the player; no second toast.
+                if (owned) Celebrate(pack, toast: false);
             });
         }
 
@@ -198,12 +199,12 @@ namespace Snaploop.UI
 
         public static string Price(PackInfo pack) => GameServices.PackStore?.PriceLabel(pack.productId) ?? "";
 
-        static void Celebrate(PackInfo pack)
+        static void Celebrate(PackInfo pack, bool toast)
         {
             Haptics.Success();
             if (UIFx.Instance != null) UIFx.Instance.Confetti(50);
             int n = pack.Levels.Count;
-            Toast?.Invoke(pack.DisplayTitle + " unlocked! " + n + (n == 1 ? " new puzzle." : " new puzzles."));
+            if (toast) Toast?.Invoke(pack.DisplayTitle + " unlocked! " + n + (n == 1 ? " new puzzle." : " new puzzles."));
         }
     }
 
