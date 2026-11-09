@@ -18,6 +18,9 @@ namespace Snaploop.UI
         SpriteRenderer latticeRenderer;
         int builtW, builtH;
 
+        // Board renderers share the transparent queue and sort by order first, so the backdrop pins itself behind them.
+        const int SortingOrder = -100;
+
         public static Backdrop Create(Camera camera)
         {
             var go = new GameObject("Backdrop");
@@ -40,12 +43,14 @@ namespace Snaploop.UI
             mr.sharedMaterial = new Material(shader) { name = "BackdropGradient" };
             mr.shadowCastingMode = ShadowCastingMode.Off;
             mr.receiveShadows = false;
+            mr.sortingOrder = SortingOrder;
 
             var glowGo = new GameObject("Glow");
             glowGo.transform.SetParent(transform, false);
             var gsr = glowGo.AddComponent<SpriteRenderer>();
             gsr.sprite = UISprites.SoftCircle;
             gsr.color = t.bgGlow;
+            gsr.sortingOrder = SortingOrder + 1;
             glow = glowGo.transform;
 
             var latGo = new GameObject("Lattice");
@@ -54,6 +59,7 @@ namespace Snaploop.UI
             var tex = UISprites.Lattice;
             latticeRenderer.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
             latticeRenderer.color = new Color(1f, 1f, 1f, t.latticeOpacity);
+            latticeRenderer.sortingOrder = SortingOrder + 2;
             lattice = latGo.transform;
 
             Rebuild();

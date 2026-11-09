@@ -180,7 +180,7 @@ namespace Snaploop.UI
             upRow.spacing = T.U(8f);
             upRow.childControlWidth = upRow.childControlHeight = false;
             upRow.childForceExpandWidth = upRow.childForceExpandHeight = false;
-            upPiecesChip = UIFactory.Chip("Pieces", upChips, "9 pieces", UISprites.Grid, T.cyan, 28f);
+            upPiecesChip = UIFactory.Chip("Pieces", upChips, "9 tiles", UISprites.Grid, T.cyan, 28f);
             var starsHolder = UIFactory.Rect("StarsHolder", upChips);
             starsHolder.sizeDelta = new Vector2(T.U(76f), T.U(28f));
             upStars = UIFactory.Stars(starsHolder, T.U(20f), T.U(3f));
@@ -443,7 +443,7 @@ namespace Snaploop.UI
                 upCaps.color = accent;
                 upAccent.color = accent;
                 upTitle.text = next.DisplayTitle;
-                UIFactory.ChipText(upPiecesChip).text = next.PieceCount + " pieces";
+                UIFactory.ChipText(upPiecesChip).text = next.PieceCount + " tiles";
                 UIFactory.SetStars(upStars, Progress.GetStars(next.id));
                 upThumb.color = thumbs.TryGetValue(next.id, out var tex) && tex != null ? Color.white : Color.Lerp(accent, T.surfaceLow, 0.35f);
                 if (tex != null) ApplyUpNextThumb(tex);
