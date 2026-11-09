@@ -68,8 +68,8 @@ namespace Snaploop.Puzzle
         VideoFeed feed;
         Material material;
         GameObject tilesGo, slotsGo, revealGo;
-        readonly TileBatch tiles = new TileBatch("Tiles");
-        readonly TileBatch slots = new TileBatch("Slots");
+        // Created in Init: a Mesh may not be created from a MonoBehaviour constructor or field initializer.
+        TileBatch tiles, slots;
         readonly TileGroups groups = new TileGroups();
 
         // Per tile.
@@ -135,6 +135,8 @@ namespace Snaploop.Puzzle
             }
             material = new Material(shader) { name = "SnaploopTiles" };
             material.SetColor(BaseId, BaseColor);
+            tiles = new TileBatch("Tiles");
+            slots = new TileBatch("Slots");
 
             slotsGo = MakeRendererObject("Slots", slots.Mesh, -2);
             tilesGo = MakeRendererObject("Tiles", tiles.Mesh, 0);
