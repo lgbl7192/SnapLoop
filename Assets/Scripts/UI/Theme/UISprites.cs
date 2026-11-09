@@ -97,6 +97,36 @@ namespace Snaploop.UI
             Min(Mathf.Abs(Box(p, V(0.5f, 0.5f), V(0.17f, 0.3f), 0.07f)) - 0.05f,
                 Min(Seg(p, V(0.16f, 0.36f), V(0.16f, 0.64f)), Seg(p, V(0.84f, 0.36f), V(0.84f, 0.64f))) - 0.05f));
 
+        static Sprite tokenHex, tokenHexInk, tokenPiece;
+
+        /// <summary>Snaploop's token: a rounded hexagon (face). Drawn in code; not a coin.</summary>
+        public static Sprite TokenHex => tokenHex ??= MakeIcon("TokenHex", p => Poly(p, HexPts) - 0.045f);
+
+        /// <summary><see cref="TokenHex"/> grown by the ink width, drawn behind it as rim and outline.</summary>
+        public static Sprite TokenHexInk => tokenHexInk ??= MakeIcon("TokenHexInk", p => Poly(p, HexPts) - 0.085f);
+
+        /// <summary>Jigsaw piece embossed on the token: a square with two knobs and one socket.</summary>
+        public static Sprite TokenPiece => tokenPiece ??= MakeIcon("TokenPiece", p =>
+        {
+            float body = Box(p, V(0.47f, 0.45f), V(0.2f, 0.2f), 0.05f);
+            float knobs = Min(Disc(p, V(0.47f, 0.7f), 0.095f), Disc(p, V(0.72f, 0.45f), 0.095f));
+            float socket = Disc(p, V(0.29f, 0.45f), 0.085f);
+            return Mathf.Max(Min(body, knobs), -socket);
+        });
+
+        static readonly Vector2[] HexPts = HexPoly(V(0.5f, 0.5f), 0.4f);
+
+        static Vector2[] HexPoly(Vector2 c, float r)
+        {
+            var pts = new Vector2[6];
+            for (int i = 0; i < 6; i++)
+            {
+                float a = (90f + i * 60f) * Mathf.Deg2Rad;
+                pts[i] = c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+            }
+            return pts;
+        }
+
         static Sprite hand, rays, ribbonTail, quarterArc, quarterArcInk, starInk;
         static Texture2D lattice;
 

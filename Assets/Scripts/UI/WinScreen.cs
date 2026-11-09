@@ -8,22 +8,26 @@ namespace Snaploop.UI
 {
     /// <summary>
     /// Celebration sheet after the reveal, with the solved loop still playing above it: stars slam in over a
-    /// sunburst, a ribbon, time/hint chips, total-star goal, then Next (primary), Share clip and Levels.
+    /// sunburst, a ribbon, time/hint/token chips, the pack's star goal, then the optional rewarded "Double tokens"
+    /// offer (green, only while an ad is ready), Next (primary), Share clip and Levels.
     /// </summary>
     public sealed class WinScreen : UIScreen
     {
         static UITheme T => UITheme.Current;
 
-        readonly RectTransform card, ribbon, burst, chipsRow, timeChip, hintChip, extraChip, goalFill;
+        readonly RectTransform card, ribbon, burst, chipsRow, timeChip, hintChip, extraChip, tokenChip, goalFill;
         readonly Text ribbonTitle, goalText, credit;
         readonly Image[] slots, fills;
-        readonly Button next, share, levels;
+        readonly Button next, share, levels, doubleTokens;
+        readonly Pulse doublePulse;
         readonly Action<PuzzleResult> onShare;
         PuzzleResult result;
         float anim = -1f;
         int starsLanded;
+        bool doubleClaimed, doublePending;
 
         const float CardDp = 352f;
+        float OfferDp => UIFactory.ButtonHeight(ButtonSize.Large) / T.dp + 10f;
         static readonly float[] StarTimes = { 0.18f, 0.51f, 0.84f };
 
         public WinScreen(Transform safeRoot, Action onNext, Action onLevels, Action<PuzzleResult> onShare)
@@ -76,6 +80,7 @@ namespace Snaploop.UI
             timeChip = UIFactory.Chip("Time", chipsRow, "0:00", UISprites.Clock, T.cyan);
             hintChip = UIFactory.Chip("Hints", chipsRow, "No hints", UISprites.Sparkle, T.star);
             extraChip = UIFactory.Chip("Extra", chipsRow, "First clear", UISprites.Check, T.green);
+            tokenChip = UIFactory.TokenChip("Tokens", chipsRow, "+0");
 
             float inner = T.U(16f);
             var goal = UIFactory.Sunk("Goal", card, 14f);
@@ -107,6 +112,21 @@ namespace Snaploop.UI
             share = UIFactory.JuicyButton("Share", card, ButtonTone.Blue, ButtonSize.Large, "Share clip", () => this.onShare?.Invoke(result), UISprites.Share);
             levels = UIFactory.JuicyButton("Levels", card, ButtonTone.Neutral, ButtonSize.Large, "Levels", () => onLevels(), UISprites.Grid);
 
+            doubleTokens = UIFactory.JuicyButton("DoubleTokens", card, ButtonTone.Reward, ButtonSize.Large, "Double tokens", OnDoubleTokens);
+            var drt = (RectTransform)doubleTokens.transform;
+            drt.anchorMin = new Vector2(0f, 0f); drt.anchorMax = new Vector2(1f, 0f); drt.pivot = new Vector2(0.5f, 0f);
+            drt.sizeDelta = new Vector2(-2f * inner, largeH);
+            drt.anchoredPosition = new Vector2(0f, nrt.anchoredPosition.y + heroH + T.U(10f));
+            var dparts = doubleTokens.GetComponent<JuicyButtonParts>();
+            var dIcon = UIFactory.TokenIcon("Token", dparts.content, T.U(28f));
+            dIcon.SetAsFirstSibling();
+            var dle = dIcon.gameObject.AddComponent<LayoutElement>();
+            dle.preferredWidth = dle.preferredHeight = T.U(28f);
+            UIFactory.SetRewardedLook(doubleTokens, true);
+            doublePulse = dparts.face.gameObject.AddComponent<Pulse>();
+            doubleTokens.gameObject.SetActive(false);
+            GameServices.RewardedOffersChanged += RefreshDoubleOffer;
+
             credit = UIFactory.Text("Credit", card, "", TextRole.Body, T.bodyS - 1f, T.textMute);
             UIFactory.Place(credit.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(340f), T.U(20f)), new Vector2(0f, T.U(7f)));
             Hide();
@@ -132,28 +152,43 @@ namespace Snaploop.UI
             }
         }
 
-        public void ShowResult(PuzzleResult r, bool hasNext)
+        /// <summary>Shows the result; <paramref name="nextLevel"/> is the next puzzle in the same pack, or null at its end.</summary>
+        public void ShowResult(PuzzleResult r, LevelInfo nextLevel)
         {
             result = r;
+            doubleClaimed = doublePending = false;
             Show();
             ribbonTitle.text = r.Stars >= 3 ? "Perfect!" : r.IsFirstClear ? "Solved!" : "Solved again!";
 
             int secs = Mathf.RoundToInt(r.ElapsedSec);
             UIFactory.ChipText(timeChip).text = (secs / 60) + ":" + (secs % 60).ToString("00");
             UIFactory.ChipText(hintChip).text = r.HintsUsed == 0 ? "No hints" : r.HintsUsed == 1 ? "1 hint" : r.HintsUsed + " hints";
-            extraChip.gameObject.SetActive(r.ForcedByDevMenu || r.IsFirstClear);
+            // Four chips don't fit the card: the token chip stands in for "First clear".
+            bool paid = r.TokensEarned > 0;
+            extraChip.gameObject.SetActive(r.ForcedByDevMenu || (r.IsFirstClear && !paid));
             UIFactory.ChipText(extraChip).text = r.ForcedByDevMenu ? "Dev win" : "First clear";
+            tokenChip.gameObject.SetActive(paid);
+            UIFactory.ChipText(tokenChip).text = "+" + r.TokensEarned;
 
-            var all = LevelCatalog.Levels;
-            int total = 0;
-            for (int i = 0; i < all.Count; i++) total += Progress.GetStars(all[i].id);
-            int max = Mathf.Max(1, all.Count * 3);
-            goalText.text = total + " / " + max + " stars collected";
+            var pack = PackCatalog.For(r.Level);
+            int total, max;
+            if (pack != null) total = PackAccess.StarsIn(pack, out max);
+            else
+            {
+                var all = LevelCatalog.Levels;
+                total = 0;
+                for (int i = 0; i < all.Count; i++) total += Progress.GetStars(all[i].id);
+                max = all.Count * 3;
+            }
+            max = Mathf.Max(1, max);
+            goalText.text = total + " / " + max + (pack == null || pack.IsStarter ? " stars collected" : " stars in " + pack.DisplayTitle);
             goalFill.anchorMax = new Vector2(Mathf.Clamp01(total / (float)max), 1f);
 
-            var nextLevel = hasNext ? LevelCatalog.Get(r.LevelIndex + 1) : null;
-            if (nextLevel != null) UIFactory.SetButtonText(next, "Next puzzle", "Level " + (r.LevelIndex + 2) + " · " + nextLevel.DisplayTitle);
+            if (nextLevel != null)
+                UIFactory.SetButtonText(next, "Next puzzle", LevelSelectScreen.LevelLabel(nextLevel, PackCatalog.For(nextLevel)) + " · " + nextLevel.DisplayTitle);
+            else if (pack != null && !pack.IsStarter) UIFactory.SetButtonText(next, "Pack complete!", "Back to the puzzles");
             else UIFactory.SetButtonText(next, "All done!", "Back to all puzzles");
+            RefreshDoubleOffer();
             credit.text = string.IsNullOrEmpty(r.Level.credit) ? "" : "Video: " + r.Level.credit;
 
             var sp = GameServices.Share;
@@ -176,7 +211,69 @@ namespace Snaploop.UI
             UITween.Get(burst.Find("Rays")).Rotate(0f, 120f).Play(9f, EaseType.OutCubic);
             UITween.Get(ribbon).Scale(0.4f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.26f);
             UITween.Get(next).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.4f);
+            if (doubleTokens.gameObject.activeSelf)
+                UITween.Get(doubleTokens).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.48f);
             if (UIFx.Instance != null) UIFx.Instance.Confetti();
+        }
+
+        /// <summary>
+        /// Shows the green "Double to N" offer only while <see cref="GameServices.DoubleTokens"/> says an ad is ready
+        /// (caps and spacing are the ad policy's call), and grows the card to fit it. Once claimed it stays as a thank-you.
+        /// </summary>
+        void RefreshDoubleOffer()
+        {
+            if (!IsVisible) return;
+            int earned = result.TokensEarned;
+            var offer = GameServices.DoubleTokens;
+            bool show = doubleClaimed || doublePending || (offer != null && offer.IsOffered(earned, doubleClaimed));
+            bool wasShown = doubleTokens.gameObject.activeSelf;
+            doubleTokens.gameObject.SetActive(show);
+            if (show && !doubleClaimed)
+            {
+                UIFactory.SetRewardedLook(doubleTokens, true);
+                UIFactory.SetButtonText(doubleTokens, "Double to " + (earned + TokenRules.DoubledBonus(earned)));
+                doubleTokens.interactable = !doublePending;
+                if (!wasShown) doublePulse.Restart();
+            }
+            LayoutCard(show);
+        }
+
+        void LayoutCard(bool withOffer)
+        {
+            float pad = T.U(12f);
+            float cardH = T.U(CardDp + (withOffer ? OfferDp : 0f));
+            card.sizeDelta = new Vector2(card.sizeDelta.x, cardH);
+            burst.anchoredPosition = new Vector2(0f, pad + cardH - T.U(85f));
+        }
+
+        void OnDoubleTokens()
+        {
+            var offer = GameServices.DoubleTokens;
+            if (offer == null || doubleClaimed || doublePending) return;
+            if (!offer.IsOffered(result.TokensEarned, false)) { RefreshDoubleOffer(); return; }
+            doublePending = true;
+            doubleTokens.interactable = false;
+            var forResult = result.Level;
+            offer.Request(earned =>
+            {
+                doublePending = false;
+                if (!IsVisible || result.Level != forResult) return;
+                if (earned)
+                {
+                    int bonus = TokenRules.DoubledBonus(result.TokensEarned);
+                    Tokens.Add(bonus);
+                    doubleClaimed = true;
+                    int total = result.TokensEarned + bonus;
+                    UIFactory.ChipText(tokenChip).text = "+" + total;
+                    UIFactory.SetRewardedLook(doubleTokens, false);
+                    UIFactory.SetButtonText(doubleTokens, "Tokens doubled! +" + total);
+                    doubleTokens.interactable = true;
+                    UITween.Get(tokenChip).Scale(1.4f, 1f).Play(0.45f, EaseType.OutElastic);
+                    Haptics.Success();
+                    if (UIFx.Instance != null) UIFx.Instance.Confetti(40);
+                }
+                RefreshDoubleOffer();
+            });
         }
 
         public override void Hide()

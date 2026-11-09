@@ -856,6 +856,7 @@ namespace Snaploop.Puzzle
             state = State.Settling;
             stateTime = 0f;
             int stars = Progress.ComputeStars(home.Length, elapsed, hintsUsed);
+            int previousBest = Progress.GetStars(level.id);
             bool first = Progress.RecordClear(level.id, stars);
             result = new PuzzleResult
             {
@@ -866,6 +867,8 @@ namespace Snaploop.Puzzle
                 Stars = stars,
                 IsFirstClear = first,
                 ForcedByDevMenu = forcedWin,
+                PreviousBest = previousBest,
+                TokensEarned = Tokens.AwardClear(previousBest, stars),
             };
             GameContext.IsPuzzleInProgress = false;
             Completed?.Invoke(result);

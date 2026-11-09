@@ -17,13 +17,14 @@ namespace Snaploop.UI
         Body,
     }
 
-    /// <summary>Button tones. Orange marks the one next action; green is only for rewarded ads.</summary>
+    /// <summary>Button tones. Orange marks the one next action; green is only for rewarded ads; pink is for packs and unlocks.</summary>
     public enum ButtonTone
     {
         Primary,
         Reward,
         Blue,
         Neutral,
+        Pink,
     }
 
     /// <summary>Button sizes (face height, lip, label size in dp).</summary>
@@ -127,6 +128,17 @@ namespace Snaploop.UI
         public Color neutralTop = Hex(0x4A4199);
         public Color neutralBottom = Hex(0x332B78);
         public Color neutralLip = Hex(0x1B1650);
+        public Color pinkTop = Hex(0xFF8FC0);
+        public Color pinkBottom = Hex(0xF0457F);
+        public Color pinkLip = Hex(0x9E1B50);
+
+        [Header("Theme packs")]
+        [Tooltip("Rim under the token glyph (its face uses the golden-hour gradient).")]
+        public Color tokenRim = Hex(0x4C1D95);
+        public Color packSeaLife = Hex(0x22B8F0);
+        public Color packAnimals = Hex(0x7BC74D);
+        public Color packSpace = Hex(0x8B5CF6);
+        public Color packChristmas = Hex(0xE5484D);
 
         [Header("Category accents")]
         public Color sunsets = Hex(0xFF8A3D);
@@ -207,6 +219,7 @@ namespace Snaploop.UI
                 case ButtonTone.Reward: top = rewardTop; bottom = rewardBottom; lip = rewardLip; break;
                 case ButtonTone.Blue: top = blueTop; bottom = blueBottom; lip = blueLip; break;
                 case ButtonTone.Neutral: top = neutralTop; bottom = neutralBottom; lip = neutralLip; break;
+                case ButtonTone.Pink: top = pinkTop; bottom = pinkBottom; lip = pinkLip; break;
                 default: top = primaryTop; bottom = primaryBottom; lip = primaryLip; break;
             }
         }
@@ -232,6 +245,23 @@ namespace Snaploop.UI
                 case "nature": return nature;
                 default: return everyday;
             }
+        }
+
+        /// <summary>Accent of a theme pack: the launch packs have their own, the starter uses the signature coral, others pick from the accents.</summary>
+        public Color Pack(string packId)
+        {
+            switch (packId)
+            {
+                case "starter": return sunsetB;
+                case "sealife": return packSeaLife;
+                case "animals": return packAnimals;
+                case "space": return packSpace;
+                case "christmas": return packChristmas;
+            }
+            Color[] pool = { cyan, pink, purple, orange, green, gold };
+            int h = 0;
+            foreach (char c in packId ?? "") h = h * 31 + c;
+            return pool[(h & 0x7fffffff) % pool.Length];
         }
 
         public Color InkColor => new Color(ink.r, ink.g, ink.b, inkAlpha);

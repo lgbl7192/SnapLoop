@@ -471,7 +471,8 @@ namespace Snaploop.UI
             {
                 int index = i;
                 var l = levels[i];
-                string label = (i + 1) + ". " + l.DisplayTitle + "  (" + l.Cols + "x" + l.Rows + ")" + (Progress.IsCleared(l.id) ? " · cleared" : "");
+                string label = (i + 1) + ". " + l.DisplayTitle + "  (" + l.Cols + "x" + l.Rows + ")" +
+                               (l.PackId != PackInfo.StarterId ? " · " + l.PackId : "") + (Progress.IsCleared(l.id) ? " · cleared" : "");
                 var b = ListRow("Jump" + i, label, ButtonTone.Neutral, () => { Close(); onJump(index); });
                 levelRows.Add(b.gameObject);
             }

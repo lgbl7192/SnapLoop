@@ -32,6 +32,9 @@ namespace Snaploop.App
         SettingsScreen settings;
         OnboardingScreen onboarding;
         DevMenuScreen devMenu;
+        PackScreen packs;
+        LevelPreviewScreen preview;
+        ToastView toast;
         Image flash;
         Text fpsText;
 
@@ -92,12 +95,14 @@ namespace Snaploop.App
             splash.Show();
             float t0 = Time.realtimeSinceStartup;
             yield return LevelCatalog.Load(null);
+            yield return PackCatalog.Load();
             levelSelect.Build(LevelCatalog.Levels, LevelCatalog.LoadError);
             while (Time.realtimeSinceStartup - t0 < 0.9f) yield return null;
 
-            if (!GameSettings.OnboardingSeen && LevelCatalog.Levels.Count > 0)
+            var starter = PackCatalog.Starter;
+            if (!GameSettings.OnboardingSeen && starter != null && !starter.IsEmpty)
             {
-                PlayLevel(0);
+                PlayLevel(starter.Levels[0].Index);
                 OpenModal(onboarding);
             }
             else
@@ -158,12 +163,14 @@ namespace Snaploop.App
             safe.gameObject.AddComponent<SafeAreaFitter>();
             safeRoot = safe;
 
-            levelSelect = new LevelSelectScreen(safeRoot, this, OnLevelCardTapped, () => OpenModal(settings));
+            levelSelect = new LevelSelectScreen(safeRoot, this, OnLevelCardTapped, () => OpenModal(settings), ShowPacks,
+                level => { preview.ShowFor(level); OpenModal(preview); });
             levelSelect.DevMenuRequested += () => OpenModal(devMenu);
             // Debug builds also get a Dev button in the HUD, where "Win now" applies to the running puzzle.
             hud = new HudScreen(safeRoot, OnBackToLevels, () => OpenModal(settings), OnHintClicked,
                 Debug.isDebugBuild ? () => OpenModal(devMenu) : (Action)null);
             win = new WinScreen(safeRoot, OnNextClicked, OnBackToLevels, r => GameServices.Share?.Share(r));
+            packs = new PackScreen(safeRoot, this, ShowLevelSelect, OpenPack);
 
             flash = UIFactory.Image("Flash", canvasRoot, new Color(1f, 1f, 1f, 0f));
             UIFactory.Stretch(flash.rectTransform);
@@ -180,8 +187,35 @@ namespace Snaploop.App
             onboarding.Closed += () => { GameSettings.OnboardingSeen = true; OnModalClosed(); };
             devMenu = new DevMenuScreen(canvasRoot, i => PlayLevel(i), DevWin, () => OpenModal(onboarding), () => levelSelect.Refresh());
             devMenu.Closed += OnModalClosed;
+            preview = new LevelPreviewScreen(canvasRoot, this);
+            preview.Closed += OnModalClosed;
+
+            toast = new ToastView(canvasRoot);
+            PackActions.Toast = msg => toast.Show(msg);
+            if (Debug.isDebugBuild) AddPackDevEntries();
 
             splash = new SplashScreen(canvasRoot);
+        }
+
+        /// <summary>Debug builds only, so the release dev menu (wordmark taps) can't hand out tokens or paid packs.</summary>
+        static void AddPackDevEntries()
+        {
+            GameServices.AddDevMenuEntry(() => "Tokens: " + Tokens.Balance + " (tap: +100)", () => Tokens.Add(100));
+            GameServices.AddDevMenuEntry(() => "Reset tokens to 0", Tokens.DevReset);
+            GameServices.AddDevMenuEntry(() =>
+            {
+                int total = PackCatalog.Packs.Count, open = PackAccess.UnlockedCount();
+                return "Packs: " + open + "/" + total + " unlocked (tap: " + (open < total ? "unlock all" : "lock all") + ")";
+            }, () => PackAccess.DevSetAllUnlocked(PackAccess.UnlockedCount() < PackCatalog.Packs.Count));
+            GameServices.AddDevMenuEntry(() =>
+            {
+                int m = PackAccess.DevMonthOverride;
+                return "Season month: " + (m == 0 ? "device (" + PackAccess.CurrentMonth + ")" : m.ToString()) + " (tap to change)";
+            }, () =>
+            {
+                PackAccess.DevMonthOverride = (PackAccess.DevMonthOverride + 1) % 13;
+                GameServices.NotifyPacksChanged();
+            });
         }
 
         // ---------------------------------------------------------------- flow
@@ -192,6 +226,7 @@ namespace Snaploop.App
             board.StopVideo();
             hud.Hide();
             win.Hide();
+            packs.Hide();
             UIFx.Instance?.Clear();
             currentIndex = -1;
             transitioning = false;
@@ -200,8 +235,21 @@ namespace Snaploop.App
 
         void OnLevelCardTapped(int index)
         {
-            if (!LevelSelectScreen.IsUnlocked(LevelCatalog.Levels, index)) return;
+            if (!PackAccess.IsLevelUnlocked(LevelCatalog.Get(index))) return;
             PlayLevel(index);
+        }
+
+        void ShowPacks()
+        {
+            levelSelect.Hide();
+            packs.Show();
+        }
+
+        void OpenPack(PackInfo pack)
+        {
+            packs.Hide();
+            levelSelect.Show();
+            levelSelect.SelectPack(pack);
         }
 
         /// <summary>Starts a level. Public for tools/dev code; ignores lock state.</summary>
@@ -213,6 +261,7 @@ namespace Snaploop.App
             hintPending = false;
             transitioning = false;
             levelSelect.Hide();
+            packs.Hide();
             win.Hide();
             UIFx.Instance?.Clear();
             hud.ShowFor(level);
@@ -282,7 +331,7 @@ namespace Snaploop.App
         void OnRevealFinished(PuzzleResult result)
         {
             hud.Hide();
-            win.ShowResult(result, currentIndex + 1 < LevelCatalog.Levels.Count);
+            win.ShowResult(result, PackAccess.NextInPack(result.Level));
         }
 
         void OnNextClicked()
@@ -290,7 +339,8 @@ namespace Snaploop.App
             if (transitioning) return;
             transitioning = true;
             int from = currentIndex;
-            int next = currentIndex + 1 < LevelCatalog.Levels.Count ? currentIndex + 1 : -1;
+            var nextLevel = PackAccess.NextInPack(LevelCatalog.Get(currentIndex));
+            int next = nextLevel != null && PackAccess.IsLevelUnlocked(nextLevel) ? nextLevel.Index : -1;
             GameEvents.RaiseNextRequested(from, next);
 
             bool proceeded = false;
@@ -329,7 +379,8 @@ namespace Snaploop.App
         bool AnyModalOpen() =>
             (settings != null && settings.IsVisible) ||
             (onboarding != null && onboarding.IsVisible) ||
-            (devMenu != null && devMenu.IsVisible);
+            (devMenu != null && devMenu.IsVisible) ||
+            (preview != null && preview.IsVisible);
 
         // ---------------------------------------------------------------- per-frame
 
@@ -340,6 +391,7 @@ namespace Snaploop.App
             hud.Tick(dt);
             win.Tick(dt);
             onboarding.Tick(dt);
+            toast.Tick(dt);
 
             if (flashT >= 0f)
             {
@@ -373,10 +425,12 @@ namespace Snaploop.App
 
         void OnAndroidBack()
         {
-            if (devMenu.IsVisible) devMenu.Close();
+            if (preview.IsVisible) preview.Close();
+            else if (devMenu.IsVisible) devMenu.Close();
             else if (settings.IsVisible) settings.Close();
             else if (onboarding.IsVisible) onboarding.Close();
             else if (hud.IsVisible || win.IsVisible) OnBackToLevels();
+            else if (packs.IsVisible) ShowLevelSelect();
             else MoveTaskToBack();
         }
 
