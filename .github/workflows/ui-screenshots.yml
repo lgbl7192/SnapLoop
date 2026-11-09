@@ -5,13 +5,16 @@ name: UI screenshots
 # PNGs, uploaded as the "ui-screenshots" artifact. A simulated cutout and gesture bar make safe-area
 # handling visible. Development builds show Unity's "Development Build" watermark; release APKs do not.
 
+# Pull requests that touch the UI, or by hand. Not on every push: the run holds the shared Unity seat.
 on:
-  push:
-    branches-ignore: [main]
+  pull_request:
     paths:
-      - 'Assets/**'
-      - 'Packages/**'
-      - 'ProjectSettings/**'
+      - 'Assets/Scripts/UI/**'
+      - 'Assets/Resources/UI/**'
+      - 'Assets/Art/**'
+      - 'Assets/Scripts/Monetization/MonetizationOverlay.cs'
+      - 'Assets/Scripts/Dev/UIScreenshotRunner.cs'
+      - 'Assets/Editor/Snaploop/UIScreenshotBuild.cs'
       - '.github/workflows/ui-screenshots.yml'
   workflow_dispatch:
 
