@@ -19,12 +19,16 @@ on:
         options: [apk, aab]
         default: apk
 
+# Per branch, a newer push replaces a run that is still waiting to start, so the latest commit always
+# builds. Manual runs get their own group and are never replaced. Running builds are never cancelled:
+# killing Unity mid-build can leave the seat activated.
 concurrency:
-  group: android-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: android-build-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'auto' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  actions: read
 
 env:
   BUILD_VARIANT: ${{ inputs.variant || 'debug' }}
@@ -94,11 +98,8 @@ jobs:
     needs: preflight
     if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    # A Unity Personal account only has a couple of activation seats, so never run two builds at once.
-    concurrency:
-      group: unity-personal-seat
-      cancel-in-progress: false
+    # Up to SEAT_WAIT_MINUTES in the seat queue plus the build itself.
+    timeout-minutes: 240
     steps:
       # The Unity Android image is large; the default runner disk is too small without this.
       - name: Free disk space
@@ -135,6 +136,76 @@ jobs:
         run: |
           echo "version=${APP_VERSION_PREFIX}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # The Unity Personal seat is shared by every Unity job in the repo, so they take turns in the order
+      # they started; nobody is cancelled. GitHub concurrency groups can't do this: they keep only one
+      # waiting job and cancel the rest. Keep this step's env and script identical in android-build.yml and
+      # ui-screenshots.yml; the job and step names below must cover every job that runs Unity.
+      - name: Wait for the Unity seat
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAT_WAIT_MINUTES: 150
+          SEAT_DEFS: |
+            def seat_job: .status == "in_progress" and (.name == "Build Android" or .name == "Capture UI screenshots");
+            def seat_step: .name == "Build with Unity" or .name == "Build Linux player";
+          # This job: matched by runner name, else the run's only in-progress Unity job.
+          SEAT_SELF: |
+            [.jobs[] | select(.runner_name == env.RUNNER_NAME)] as $mine
+            | (if ($mine | length) == 1 then $mine else [.jobs[] | select(seat_job)] end)
+            | select(length == 1) | .[0] | "\(.started_at) \(.id)"
+          # Unity jobs that started before this one and haven't finished their Unity step.
+          SEAT_HOLDERS: |
+            .jobs[]
+            | select(seat_job and .id != (env.MY_ID | tonumber))
+            | select(.started_at < env.MY_START or (.started_at == env.MY_START and .id < (env.MY_ID | tonumber)))
+            | select(any(.steps[]?; seat_step and .status == "completed") | not)
+            | "\(.name): \(.html_url)"
+        run: |
+          api() { gh api -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
+          for _ in 1 2 3 4 5 6; do
+            me=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+              --jq "$SEAT_DEFS $SEAT_SELF") && [ -n "$me" ] && break
+            sleep 10
+          done
+          [ -n "${me:-}" ] || { echo "::error::Could not look up this job through the Actions API."; exit 1; }
+          read -r MY_START MY_ID <<< "$me"
+          export MY_START MY_ID
+
+          start=$(date +%s)
+          deadline=$(( start + SEAT_WAIT_MINUTES * 60 ))
+          while :; do
+            ahead="" ok=true
+            # Only runs that started before this job can contain a job that did.
+            if runs=$(api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" \
+                --jq ".workflow_runs[] | select(.run_started_at <= \"$MY_START\") | \"\(.id) \(.run_attempt)\""); then
+              while read -r run attempt; do
+                [ -n "$run" ] || continue
+                holders=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run/attempts/$attempt/jobs?per_page=100" --jq "$SEAT_DEFS $SEAT_HOLDERS") \
+                  || { ok=false; break; }
+                if [ -n "$holders" ]; then ahead+="$holders"$'\n'; fi
+              done <<< "$runs"
+            else
+              ok=false
+            fi
+
+            if $ok && [ -z "$ahead" ]; then break; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Gave up after waiting ${SEAT_WAIT_MINUTES} minutes for the Unity seat. Still ahead:"
+              printf '%s' "$ahead"
+              exit 1
+            fi
+            if $ok; then
+              echo "$(date -u +%H:%M:%S) Waiting for the Unity seat, ahead of this job:"
+              printf '%s' "$ahead" | sed 's/^/  /'
+            else
+              echo "$(date -u +%H:%M:%S) Actions API call failed; treating the seat as taken and retrying."
+            fi
+            sleep 60
+          done
+
+          waited=$(( ($(date +%s) - start) / 60 ))
+          echo "Unity seat is free (waited ${waited} min)."
+          [ "$waited" -eq 0 ] || echo "Waited ${waited} min for the shared Unity seat." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build with Unity
         id: unity
