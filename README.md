@@ -1,6 +1,6 @@
 # Snaploop
 
-Android-first video jigsaw built in Unity. Every piece is a live window onto one looping clip: drag the pieces into place, they snap together, and the finished puzzle plays the full uncut loop.
+Android-first video puzzle built in Unity. Every tile is a live window onto one looping clip: drag the tiles into place, correct neighbours join into one shape, and the finished puzzle plays the full uncut loop.
 
 - Unity **6000.0.85f2** (Unity 6 LTS), built-in render pipeline, Android only, portrait.
 - Product name, Android app label and in-app splash: **Snaploop**. Package id `com.snaploop.game` is a placeholder; change it before the first store upload.
@@ -12,7 +12,7 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | --- | --- |
 | `Assets/Scenes/Main.unity` | The only scene: a camera and the `SnaploopApp` component. All UI is built in code. |
 | `Assets/Scripts/App/SnaploopApp.cs` | Composition root and screen flow (splash, level select, puzzle, win, next). |
-| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (drag, snap, magnetism, scramble, hint, reveal), `JigsawShape` (tab outlines), `Triangulator`. |
+| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (free drag, snap, magnetism, scramble, hint, reveal), `TileBatch` (all tiles as one mesh), `TileGroups` (which tiles are joined). `JigsawShape` and `Triangulator` are the older tab-shaped cut, kept for reuse. |
 | `Assets/Scripts/Video/VideoFeed.cs` | The single `VideoPlayer` writing into one shared `RenderTexture`. |
 | `Assets/Scripts/Levels/` | `levels.json` loader and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, haptics, generated sound effects. |
@@ -23,6 +23,7 @@ Android-first video jigsaw built in Unity. Every piece is a live window onto one
 | `Assets/Resources/Monetization/MonetizationConfig.asset` | Every ad and IAP id and every ad rule number. |
 | `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules (no Unity needed). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
+| `Assets/Resources/Shaders/SnaploopVideoTile.shader` | The puzzle's tile shader: rounded tiles, gaps and outlines drawn per pixel from edge flags, so a joined group shows one outer outline. `SnaploopVideoPiece` above is the older jigsaw-piece shader. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, and `levels.json`. |
 | `Assets/Editor/Snaploop/` | Editor menu: **Snaploop > Apply Player Settings / Validate Levels / Open Main Scene**. |
 | `Assets/Scripts/Capture/`, `Assets/Plugins/Android/SnaploopCapture/` | Win clip capture: offscreen replay renderer and the Android encoder/share plugin. See [Vertical clip capture](#vertical-clip-capture-win-clips). |
@@ -230,7 +231,7 @@ None of this has been created yet. No accounts, listings or ad units exist.
 ## Performance notes
 
 - One video decoder per puzzle, whatever the piece count. All pieces sample the same `RenderTexture` by UV.
-- All pieces are one mesh with one material: one draw call for pieces, plus one for the board and one for the reveal quad. Moving a piece rewrites its slice of a persistent vertex array, uploaded at most once per frame.
+- All tiles are one mesh with one material: one draw call for tiles, plus one for the board slots and one for the reveal quad. Moving a group rewrites its tiles' slice of a persistent vertex array, uploaded at most once per frame; stacking order is an index-buffer rewrite on pick-up and drop only.
 - No per-frame allocations in the gameplay loop. Progress strings are cached, and events are only raised on state changes.
 - Targets 60 fps; the screen stays awake while the app is open.
 
@@ -246,7 +247,7 @@ After a win, Snaploop can export a 9:16 MP4 of the puzzle: the scrambled pieces 
 
 The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `IShareProvider` installed before the first scene loads) builds a `ClipJob` from the win's `PuzzleResult`:
 
-1. `ClipScene` rebuilds the same jigsaw cut as the game (same `JigsawShape` seed, triangulation and `Snaploop/VideoPiece` shader) in a 720x1280 layout. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
+1. `ClipScene` rebuilds the puzzle's tile grid with the game's own `TileBatch`, `TileGroups` and `Snaploop/VideoTile` shader in a 720x1280 layout. Tiles join into one outlined shape as they land, just like in play. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
 2. `ClipVideoSource` opens the level's clip in a second, paused `VideoPlayer` and steps it one frame per output frame, so the moving picture in the clip is smooth however slow encoding is. If stepping isn't supported or stalls, it falls back to the game's live video texture.
 3. Frames are read back with `AsyncGPUReadback` (falling back to `ReadPixels`) and handed to a sink:
    - **Android:** `ClipEncoder.java` uploads each RGBA frame as a texture to a private EGL context whose surface is the input of a hardware `MediaCodec` H.264 encoder, then muxes with `MediaMuxer`. The frame buffer goes from C# to Java as a direct `ByteBuffer`, with no copy into the Java heap.

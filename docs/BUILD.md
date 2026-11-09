@@ -58,7 +58,7 @@ Workflow: `.github/workflows/android-build.yml` ("Android build").
 
 **Versioning:** CI sets the version name to `0.1.<run number>` and the Android `versionCode` to the run number, so every CI build installs over the previous one and Play always sees an increasing code. Change the `APP_VERSION_PREFIX` value at the top of the workflow to bump the marketing version (for example to `1.0`).
 
-**What the workflow does:** frees disk space on the runner (the Unity Android image is about 22 GB unpacked), checks out the repo, restores cached Git LFS objects and pulls the rest (so the video clips don't use LFS bandwidth on every run), restores the cached Unity `Library` folder, builds with GameCI, and uploads the result. Only one build runs at a time, so the Personal license seat is never used twice at once. The first build on a fresh cache is the slowest; later builds reuse the cached `Library`.
+**What the workflow does:** frees disk space on the runner (the Unity Android image is about 22 GB unpacked), checks out the repo, restores cached Git LFS objects and pulls the rest (so the video clips don't use LFS bandwidth on every run), restores the cached Unity `Library` folder, builds with GameCI, and uploads the result. Only one build runs at a time, so the Personal license seat is never used twice at once. The first build on a fresh cache is the slowest; later builds reuse the cached `Library`. In the first runs (November 2026) a full run took about 12 minutes, of which the Unity build itself was 3–6 minutes, and the debug APK with all 30 clips was about 120 MB.
 
 **Unity version upgrades:** upgrade the project in the Editor and commit `ProjectSettings/ProjectVersion.txt`. CI picks the matching `unityci/editor:ubuntu-<version>-android-3` image automatically. GameCI usually publishes images within hours of a Unity release; check [Docker Hub](https://hub.docker.com/r/unityci/editor/tags?name=android) if a brand-new patch fails to pull.
 
@@ -147,7 +147,7 @@ base64 -w0 snaploop-release.keystore
 - **"Unity reports no available Personal seats":** a previous run was killed before it could return its seat. Sign in at [id.unity.com](https://id.unity.com), release the stale activation, and re-run.
 - **"Unity did not grant a Personal seat for this editor version":** re-run once. If it keeps failing, sign in to Unity Hub on any computer, go to **Preferences > Licenses > Add > Get a free personal license**, and paste the contents of the resulting `Unity_lic.ulf` into the `UNITY_LICENSE` secret (`C:\ProgramData\Unity\Unity_lic.ulf` on Windows, `/Library/Application Support/Unity/Unity_lic.ulf` on macOS, `~/.local/share/unity3d/Unity/Unity_lic.ulf` on Linux). GameCI tries that file first and falls back to the email and password.
 - **"No enabled scenes":** add the game scenes under **File > Build Profiles > Scene List**.
-- **Out of disk space on the runner:** the workflow's "Free disk space" step should prevent this; if it still happens, set `tool-cache: true` on that step.
+- **Out of disk space on the runner:** the workflow's "Free disk space" step should prevent this; if it still happens, add `with: { preinstalled-runtimes: true }` to that step.
 - **The APK won't install over an older one:** it was signed with a different key (debug versus release). Uninstall the old app first.
 
 ## Notes

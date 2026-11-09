@@ -9,13 +9,14 @@ using UnityEngine.Rendering;
 namespace Snaploop.Capture
 {
     /// <summary>
-    /// Deterministic replay of a solved puzzle for the share clip: scrambled pieces fly into their
-    /// slots over the moving video, the board grows into the full uncut loop, then a Snaploop end card.
+    /// Deterministic replay of a solved puzzle for the share clip: scrambled tiles fly into their
+    /// slots over the moving video and join into one shape, the board grows into the full uncut loop,
+    /// then a Snaploop end card.
     ///
     /// Drawn offscreen with a CommandBuffer into a RenderTexture: no camera, no scene objects, nothing
     /// the game camera can see. Frame n always looks the same, so the clip can be rendered at whatever
-    /// speed the device manages. It uses the same jigsaw cut (same seed) and the same piece shader as
-    /// the puzzle the player just solved. Coordinates are output pixels, origin bottom-left.
+    /// speed the device manages. It uses the same tile grid (<see cref="TileBatch"/>, <see cref="TileGroups"/>)
+    /// and the same Snaploop/VideoTile shader as the puzzle. Coordinates are output pixels, origin bottom-left.
     ///
     /// The target has no depth buffer; stacking is the order of the index buffer (painter's algorithm).
     /// </summary>
@@ -28,7 +29,6 @@ namespace Snaploop.Capture
         const float AssemblySec = 4.2f;
         const float MinSnapGapSec = 0.1f, MaxSnapGapSec = 0.42f;
         const float FlightSec = 0.42f;
-        const float LandFlashSec = 0.3f;
         const float SettleSec = 0.3f;
         const float RevealGrowSec = 0.6f;
         const float RevealFlashSec = 0.45f;
@@ -37,33 +37,23 @@ namespace Snaploop.Capture
         const float EndCardSec = 2.0f;
         const float EndCardFadeSec = 0.35f;
 
-        // Geometry, fractions of the shorter cell side (same look as PuzzleBoard).
-        const float StripWidth = 0.05f, SlotLineWidth = 0.014f;
+        // Tile look, fractions of the shorter cell side (same as PuzzleBoard).
+        const float CornerRadius = 0.07f, GapWidth = 0.06f, OutlineWidth = 0.025f;
         const float ScrambleJitter = 0.18f, ScrambleSpread = 1.1f, LiftScale = 0.08f;
 
         // Layout, fractions of the output frame.
         const float TopBand = 0.17f, BottomBand = 0.12f, SideMargin = 0.06f;
 
-        static readonly Color32 FillColor = new Color32(255, 255, 255, 255);
-        static readonly Color32 EdgeDark = new Color32(12, 12, 16, 0);
-        static readonly Color32 EdgeDarkInner = new Color32(12, 12, 16, 255);
-        static readonly Color32 EdgeLift = new Color32(255, 255, 255, 0);
-        static readonly Color32 EdgeLiftInner = new Color32(255, 255, 255, 255);
-        static readonly Color32 BoardBg = new Color32(16, 17, 24, 26);
-        static readonly Color32 SlotLine = new Color32(70, 74, 92, 0);
+        static readonly Color32 TileColor = new Color32(255, 255, 255, 255);
+        static readonly Color32 SlotColor = new Color32(62, 66, 86, 30);
 
         static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         static readonly int ColorId = Shader.PropertyToID("_Color");
         static readonly int SampleAddId = Shader.PropertyToID("_TextureSampleAdd");
         static readonly int FadeId = Shader.PropertyToID("_Fade");
-
-        struct Piece
-        {
-            public Vector2 Home, From;
-            public float Start;
-            public int VertStart, VertCount, StripStart;
-            public int[] Tris;
-        }
+        static readonly int RadiusId = Shader.PropertyToID("_Radius");
+        static readonly int GapId = Shader.PropertyToID("_Gap");
+        static readonly int OutlineId = Shader.PropertyToID("_Outline");
 
         public int FrameCount { get; }
         public float DurationSec => FrameCount / (float)Fps;
@@ -71,20 +61,25 @@ namespace Snaploop.Capture
         readonly int width, height;
         readonly float ui; // text/stroke scale relative to a 720 px wide frame
         readonly LevelInfo level;
-        readonly Material pieceMat, overlayMat;
+        readonly Material tileMat, overlayMat;
         readonly CommandBuffer cb = new CommandBuffer { name = "SnaploopClip" };
         readonly Matrix4x4 view, proj;
         readonly List<MaterialPropertyBlock> blocks = new List<MaterialPropertyBlock>();
         int blockIndex;
 
-        readonly Mesh piecesMesh, boardMesh, quadMesh, topBandMesh, bottomBandMesh;
-        Piece[] pieces;
-        int[] byStart, byStack;
-        Vector3[] verts, baseLocal;
-        Color32[] colors;
-        readonly List<int> indices = new List<int>();
+        readonly TileBatch tiles = new TileBatch("ClipTiles");
+        readonly TileBatch slots = new TileBatch("ClipSlots");
+        readonly TileGroups groups = new TileGroups();
+        readonly Mesh revealMesh, quadMesh, topBandMesh, bottomBandMesh;
+
+        // Per tile.
+        Vector2[] from;
+        float[] start;
+        bool[] landed;
+        int[] byStart, byStack, drawOrder;
+        int joinedCount = -1;
+
         Rect boardRect, coverRect;
-        float cellMin;
         readonly float revealAt, endAt;
 
         readonly Font font;
@@ -102,26 +97,24 @@ namespace Snaploop.Capture
             ui = width / 720f;
             GetMatrices(width, height, out view, out proj);
 
-            var pieceShader = Shader.Find("Snaploop/VideoPiece");
+            var tileShader = Shader.Find("Snaploop/VideoTile");
             var overlayShader = Shader.Find("Snaploop/CaptureOverlay");
-            if (pieceShader == null || overlayShader == null)
-                throw new InvalidOperationException("Clip capture shaders missing (Snaploop/VideoPiece, Snaploop/CaptureOverlay).");
-            pieceMat = new Material(pieceShader) { name = "ClipPieces" };
-            pieceMat.SetFloat(FadeId, 1f);
+            if (tileShader == null || overlayShader == null)
+                throw new InvalidOperationException("Clip capture shaders missing (Snaploop/VideoTile, Snaploop/CaptureOverlay).");
+            tileMat = new Material(tileShader) { name = "ClipTiles" };
+            tileMat.SetFloat(FadeId, 1f);
             overlayMat = new Material(overlayShader) { name = "ClipOverlay" };
 
-            piecesMesh = new Mesh { name = "ClipPieces" };
-            piecesMesh.MarkDynamic();
-            boardMesh = new Mesh { name = "ClipBoard" };
+            revealMesh = BuildRevealQuad();
             quadMesh = BuildQuad(new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255));
             topBandMesh = BuildQuad(new Color32(0, 0, 0, 0), new Color32(0, 0, 0, 170));
             bottomBandMesh = BuildQuad(new Color32(0, 0, 0, 170), new Color32(0, 0, 0, 0));
 
             BuildPuzzle(Mathf.Clamp(videoAspect, 0.3f, 3f));
 
-            int n = pieces.Length;
+            int n = tiles.Count;
             float gap = Mathf.Clamp(AssemblySec / n, MinSnapGapSec, MaxSnapGapSec);
-            for (int k = 0; k < n; k++) pieces[byStart[k]].Start = IntroHoldSec + k * gap;
+            for (int k = 0; k < n; k++) start[byStart[k]] = IntroHoldSec + k * gap;
             revealAt = IntroHoldSec + (n - 1) * gap + FlightSec + SettleSec;
             endAt = revealAt + RevealGrowSec + RevealHoldSec;
             FrameCount = Mathf.CeilToInt((endAt + EndCardSec) * Fps);
@@ -142,12 +135,13 @@ namespace Snaploop.Capture
             Font.textureRebuilt -= OnFontRebuilt;
             cb.Release();
             foreach (var t in texts) t.Destroy();
-            UnityEngine.Object.Destroy(piecesMesh);
-            UnityEngine.Object.Destroy(boardMesh);
+            UnityEngine.Object.Destroy(tiles.Mesh);
+            UnityEngine.Object.Destroy(slots.Mesh);
+            UnityEngine.Object.Destroy(revealMesh);
             UnityEngine.Object.Destroy(quadMesh);
             UnityEngine.Object.Destroy(topBandMesh);
             UnityEngine.Object.Destroy(bottomBandMesh);
-            UnityEngine.Object.Destroy(pieceMat);
+            UnityEngine.Object.Destroy(tileMat);
             UnityEngine.Object.Destroy(overlayMat);
         }
 
@@ -168,7 +162,7 @@ namespace Snaploop.Capture
         public void Render(int frame, Texture video, RenderTexture target)
         {
             float t = frame / (float)Fps;
-            pieceMat.SetTexture(MainTexId, video != null ? video : Texture2D.blackTexture);
+            tileMat.SetTexture(MainTexId, video != null ? video : Texture2D.blackTexture);
             UpdateTexts(t);
 
             cb.Clear();
@@ -201,50 +195,64 @@ namespace Snaploop.Capture
             Graphics.ExecuteCommandBuffer(cb);
         }
 
+        int LandedCount(float t)
+        {
+            // Start times rise along byStart, so the landed tiles are always a prefix of it.
+            int k = 0;
+            while (k < byStart.Length && t >= start[byStart[k]] + FlightSec) k++;
+            return k;
+        }
+
         void DrawAssembly(float t)
         {
-            cb.DrawMesh(boardMesh, Matrix4x4.identity, pieceMat, 0, 0);
+            int n = tiles.Count;
+            int landedCount = LandedCount(t);
+            UpdateJoins(landedCount);
 
-            int n = pieces.Length;
             for (int i = 0; i < n; i++)
             {
-                ref Piece p = ref pieces[i];
-                float f = (t - p.Start) / FlightSec;
-                Vector2 pos;
-                float scale = 1f;
-                Color32 outer, inner;
-                if (f <= 0f)
-                {
-                    pos = p.From;
-                    outer = EdgeDark; inner = EdgeDarkInner;
-                }
+                float f = (t - start[i]) / FlightSec;
+                Vector2 home = tiles.HomeOf(i);
+                if (f <= 0f) tiles.SetTile(i, from[i], 1f);
                 else if (f < 1f)
                 {
                     float e = 1f - (1f - f) * (1f - f) * (1f - f);
-                    pos = Vector2.LerpUnclamped(p.From, p.Home, e);
-                    scale = 1f + LiftScale * Mathf.Sin(f * Mathf.PI);
-                    outer = EdgeLift; inner = EdgeLiftInner;
+                    tiles.SetTile(i, Vector2.LerpUnclamped(from[i], home, e), 1f + LiftScale * Mathf.Sin(f * Mathf.PI));
                 }
-                else
-                {
-                    pos = p.Home;
-                    float k = Mathf.Clamp01((t - p.Start - FlightSec) / LandFlashSec);
-                    outer = Color32.Lerp(EdgeLift, FillColor, k);
-                    inner = Color32.Lerp(EdgeLiftInner, FillColor, k);
-                }
-                WritePiece(i, pos, scale, outer, inner);
+                else tiles.SetTile(i, home, 1f);
             }
 
-            // Placed pieces at the back, then the loose stack, then pieces in flight (latest on top).
-            indices.Clear();
-            foreach (int i in byStart) if (t >= pieces[i].Start + FlightSec) indices.AddRange(pieces[i].Tris);
-            foreach (int i in byStack) if (t <= pieces[i].Start) indices.AddRange(pieces[i].Tris);
-            foreach (int i in byStart) if (t > pieces[i].Start && t < pieces[i].Start + FlightSec) indices.AddRange(pieces[i].Tris);
+            // Landed tiles at the back, then the loose stack, then tiles in flight (latest on top).
+            int w = 0;
+            for (int k = 0; k < landedCount; k++) drawOrder[w++] = byStart[k];
+            foreach (int i in byStack) if (t <= start[i]) drawOrder[w++] = i;
+            for (int k = landedCount; k < n; k++) if (t > start[byStart[k]]) drawOrder[w++] = byStart[k];
+            tiles.SetDrawOrder(drawOrder);
+            tiles.Flush();
 
-            piecesMesh.SetVertices(verts);
-            piecesMesh.SetColors(colors);
-            piecesMesh.SetTriangles(indices, 0, false);
-            cb.DrawMesh(piecesMesh, Matrix4x4.identity, pieceMat, 0, 0);
+            cb.DrawMesh(slots.Mesh, Matrix4x4.identity, tileMat, 0, 0);
+            cb.DrawMesh(tiles.Mesh, Matrix4x4.identity, tileMat, 0, 0);
+        }
+
+        /// <summary>Joins every landed tile with its landed grid neighbours and refreshes the outlines.</summary>
+        void UpdateJoins(int landedCount)
+        {
+            if (landedCount == joinedCount) return;
+            joinedCount = landedCount;
+            int n = tiles.Count;
+            groups.Reset(level.Cols, level.Rows);
+            for (int i = 0; i < n; i++) landed[i] = false;
+            for (int k = 0; k < landedCount; k++) landed[byStart[k]] = true;
+            for (int k = 0; k < landedCount; k++)
+            {
+                int i = byStart[k];
+                for (int s = 0; s < 4; s++)
+                {
+                    int nb = groups.Neighbor(i, (TileGroups.Side)s);
+                    if (nb >= 0 && landed[nb] && !groups.SameGroup(i, nb)) groups.Merge(groups.GroupOf(nb), groups.GroupOf(i));
+                }
+            }
+            for (int i = 0; i < n; i++) tiles.SetEdges(i, groups.EdgeMask(i));
         }
 
         void DrawReveal(float r)
@@ -254,7 +262,7 @@ namespace Snaploop.Capture
             var rect = new Rect(
                 Mathf.Lerp(boardRect.x, coverRect.x, e), Mathf.Lerp(boardRect.y, coverRect.y, e),
                 Mathf.Lerp(boardRect.width, coverRect.width, e), Mathf.Lerp(boardRect.height, coverRect.height, e));
-            cb.DrawMesh(quadMesh, RectMatrix(rect), pieceMat, 0, 0);
+            cb.DrawMesh(revealMesh, RectMatrix(rect), tileMat, 0, 0);
         }
 
         void DrawOverlays(float t)
@@ -303,12 +311,11 @@ namespace Snaploop.Capture
 
         void UpdateTexts(float t)
         {
-            int placed = 0;
-            for (int i = 0; i < pieces.Length; i++) if (t >= pieces[i].Start + FlightSec) placed++;
+            int placed = Mathf.Min(LandedCount(t), tiles.Count);
             if (placed != shownPlaced)
             {
                 shownPlaced = placed;
-                progress.Set(placed + " / " + pieces.Length);
+                progress.Set(placed + " / " + tiles.Count);
             }
             // Requesting every frame keeps our glyphs in the shared dynamic font atlas when the UI grows it.
             foreach (var x in texts) x.Request();
@@ -361,83 +368,27 @@ namespace Snaploop.Capture
                 : new Rect(0f, height * 0.5f - width / aspect * 0.5f, width, width / aspect);
 
             var cell = new Vector2(bw / cols, bh / rows);
-            cellMin = Mathf.Min(cell.x, cell.y);
-            var outlines = JigsawShape.Build(cols, rows, new Vector2(bw, bh), StableHash(level.id));
+            float cellMin = Mathf.Min(cell.x, cell.y);
+            tileMat.SetFloat(RadiusId, CornerRadius * cellMin);
+            tileMat.SetFloat(GapId, GapWidth * cellMin);
+            tileMat.SetFloat(OutlineId, OutlineWidth * cellMin);
 
-            int total = 0;
-            for (int i = 0; i < n; i++) total += outlines[i].Count * 3;
-            verts = new Vector3[total];
-            baseLocal = new Vector3[total];
-            colors = new Color32[total];
-            var uvs = new Vector2[total];
-            pieces = new Piece[n];
-            var tris = new List<int>();
+            tiles.Build(cols, rows, boardRect, TileColor);
+            slots.Build(cols, rows, boardRect, SlotColor);
+            slots.Flush();
+            groups.Reset(cols, rows);
 
-            Vector2 centre = boardRect.center;
-            Vector2 half = new Vector2(bw, bh) * 0.5f;
-            int v = 0;
-            for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-            {
-                int idx = r * cols + c;
-                var outline = outlines[idx];
-                int m = outline.Count;
-                Vector2 homeLocal = new Vector2((c + 0.5f) * cell.x, (r + 0.5f) * cell.y) - half;
-                ref Piece p = ref pieces[idx];
-                p.Home = centre + homeLocal;
-                p.VertStart = v;
-                p.VertCount = 3 * m;
-                p.StripStart = v + m;
-
-                tris.Clear();
-                for (int k = 0; k < m; k++)
-                {
-                    Vector2 bp = outline[k];
-                    Vector2 local = bp - homeLocal;
-                    baseLocal[v + k] = new Vector3(local.x, local.y, 0f);
-                    uvs[v + k] = new Vector2((bp.x + half.x) / bw, (bp.y + half.y) / bh);
-                    colors[v + k] = FillColor;
-                }
-                Triangulator.Triangulate(outline, tris, v);
-
-                float sw = StripWidth * cellMin;
-                int so = v + m;
-                for (int k = 0; k < m; k++)
-                {
-                    Vector2 prev = outline[(k + m - 1) % m], cur = outline[k], next = outline[(k + 1) % m];
-                    Vector2 innerPt = cur + InsetDirection(prev, cur, next) * sw;
-                    Vector2 innerLocal = innerPt - homeLocal;
-                    baseLocal[so + 2 * k] = baseLocal[v + k];
-                    baseLocal[so + 2 * k + 1] = new Vector3(innerLocal.x, innerLocal.y, 0f);
-                    uvs[so + 2 * k] = uvs[v + k];
-                    uvs[so + 2 * k + 1] = new Vector2((innerPt.x + half.x) / bw, (innerPt.y + half.y) / bh);
-                    int a0 = so + 2 * k, a1 = a0 + 1;
-                    int b0 = so + 2 * ((k + 1) % m), b1 = b0 + 1;
-                    tris.Add(a0); tris.Add(b0); tris.Add(b1);
-                    tris.Add(a0); tris.Add(b1); tris.Add(a1);
-                }
-                p.Tris = tris.ToArray();
-                v += 3 * m;
-            }
-
-            Scramble(StableHash(level.id) ^ 0x51A9, cell);
-
-            piecesMesh.Clear();
-            piecesMesh.indexFormat = total > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-            for (int i = 0; i < n; i++) WritePiece(i, pieces[i].From, 1f, EdgeDark, EdgeDarkInner);
-            piecesMesh.SetVertices(verts);
-            piecesMesh.SetUVs(0, uvs);
-            piecesMesh.SetColors(colors);
-            piecesMesh.bounds = new Bounds(new Vector3(width * 0.5f, height * 0.5f, 0f), new Vector3(width * 4f, height * 4f, 100f));
-
-            BuildBoardMesh(outlines, centre, half, bw, bh);
+            from = new Vector2[n];
+            start = new float[n];
+            landed = new bool[n];
+            drawOrder = new int[n];
+            Scramble(new System.Random(unchecked(level.Index * 7919 + cols * 131 + rows)), cell);
         }
 
-        /// <summary>Every piece starts on another piece's slot (one random cycle), loosely spread over the board.</summary>
-        void Scramble(int seed, Vector2 cell)
+        /// <summary>Every tile starts on another tile's slot (one random cycle), loosely spread over the board.</summary>
+        void Scramble(System.Random rng, Vector2 cell)
         {
-            int n = pieces.Length;
-            var rng = new System.Random(seed);
+            int n = tiles.Count;
             var perm = new int[n];
             for (int i = 0; i < n; i++) perm[i] = i;
             for (int i = n - 1; i > 0; i--)
@@ -450,13 +401,13 @@ namespace Snaploop.Capture
             float hx = cell.x * 0.5f, hy = cell.y * 0.5f;
             for (int i = 0; i < n; i++)
             {
-                Vector2 target = pieces[perm[i]].Home + new Vector2(
+                Vector2 target = tiles.HomeOf(perm[i]) + new Vector2(
                     ((float)rng.NextDouble() * 2f - 1f) * ScrambleJitter * cell.x,
                     ((float)rng.NextDouble() * 2f - 1f) * ScrambleJitter * cell.y);
                 target = centre + (target - centre) * ScrambleSpread;
                 target.x = Mathf.Clamp(target.x, hx, width - hx);
                 target.y = Mathf.Clamp(target.y, height * BottomBand + hy, height * (1f - TopBand) - hy);
-                pieces[i].From = target;
+                from[i] = target;
             }
 
             byStack = Shuffled(n, rng);
@@ -475,78 +426,16 @@ namespace Snaploop.Capture
             return a;
         }
 
-        void WritePiece(int i, Vector2 pos, float scale, Color32 outer, Color32 inner)
+        /// <summary>Unit quad for the tile shader with no exposed edges, so it draws as a plain unclipped video quad.</summary>
+        static Mesh BuildRevealQuad()
         {
-            ref Piece p = ref pieces[i];
-            int end = p.VertStart + p.VertCount;
-            for (int k = p.VertStart; k < end; k++)
-            {
-                Vector3 b = baseLocal[k];
-                verts[k] = new Vector3(pos.x + b.x * scale, pos.y + b.y * scale, 0f);
-            }
-            for (int k = p.StripStart; k < end; k += 2)
-            {
-                colors[k] = outer;
-                colors[k + 1] = inner;
-            }
-        }
-
-        void BuildBoardMesh(List<Vector2>[] outlines, Vector2 centre, Vector2 half, float bw, float bh)
-        {
-            var bv = new List<Vector3>();
-            var buv = new List<Vector2>();
-            var bc = new List<Color32>();
-            var bt = new List<int>();
-
-            float pad = cellMin * 0.04f;
-            AddQuad(bv, buv, bc, bt, new Rect(boardRect.xMin - pad, boardRect.yMin - pad, bw + 2 * pad, bh + 2 * pad), BoardBg,
-                new Rect(-pad / bw, -pad / bh, 1f + 2 * pad / bw, 1f + 2 * pad / bh));
-
-            float lw = Mathf.Max(1f, SlotLineWidth * cellMin) * 0.5f;
-            foreach (var outline in outlines)
-            {
-                int m = outline.Count;
-                int start = bv.Count;
-                for (int k = 0; k < m; k++)
-                {
-                    Vector2 prev = outline[(k + m - 1) % m], cur = outline[k], next = outline[(k + 1) % m];
-                    Vector2 d = InsetDirection(prev, cur, next) * lw;
-                    Vector2 a = centre + cur - d, b = centre + cur + d;
-                    bv.Add(new Vector3(a.x, a.y, 0f));
-                    bv.Add(new Vector3(b.x, b.y, 0f));
-                    var uv = new Vector2((cur.x + half.x) / bw, (cur.y + half.y) / bh);
-                    buv.Add(uv);
-                    buv.Add(uv);
-                    bc.Add(SlotLine);
-                    bc.Add(SlotLine);
-                }
-                for (int k = 0; k < m; k++)
-                {
-                    int a0 = start + 2 * k, a1 = a0 + 1;
-                    int b0 = start + 2 * ((k + 1) % m), b1 = b0 + 1;
-                    bt.Add(a0); bt.Add(b0); bt.Add(b1);
-                    bt.Add(a0); bt.Add(b1); bt.Add(a1);
-                }
-            }
-
-            boardMesh.Clear();
-            boardMesh.indexFormat = bv.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-            boardMesh.SetVertices(bv);
-            boardMesh.SetUVs(0, buv);
-            boardMesh.SetColors(bc);
-            boardMesh.SetTriangles(bt, 0, true);
-        }
-
-        static void AddQuad(List<Vector3> v, List<Vector2> uv, List<Color32> c, List<int> t, Rect r, Color32 col, Rect uvRect)
-        {
-            int s = v.Count;
-            v.Add(new Vector3(r.xMin, r.yMin, 0f)); uv.Add(new Vector2(uvRect.xMin, uvRect.yMin));
-            v.Add(new Vector3(r.xMax, r.yMin, 0f)); uv.Add(new Vector2(uvRect.xMax, uvRect.yMin));
-            v.Add(new Vector3(r.xMax, r.yMax, 0f)); uv.Add(new Vector2(uvRect.xMax, uvRect.yMax));
-            v.Add(new Vector3(r.xMin, r.yMax, 0f)); uv.Add(new Vector2(uvRect.xMin, uvRect.yMax));
-            for (int i = 0; i < 4; i++) c.Add(col);
-            t.Add(s); t.Add(s + 2); t.Add(s + 1);
-            t.Add(s); t.Add(s + 3); t.Add(s + 2);
+            var m = BuildQuad(TileColor, TileColor);
+            m.name = "ClipReveal";
+            var zero = new[] { Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero };
+            m.SetUVs(1, zero);
+            m.SetUVs(2, zero);
+            m.SetUVs(3, zero);
+            return m;
         }
 
         /// <summary>Unit quad centred on the origin, UV 0..1, with separate bottom and top vertex colours.</summary>
@@ -558,29 +447,6 @@ namespace Snaploop.Capture
             m.colors32 = new[] { bottom, bottom, top, top };
             m.triangles = new[] { 0, 2, 1, 0, 3, 2 };
             return m;
-        }
-
-        static Vector2 InsetDirection(Vector2 prev, Vector2 cur, Vector2 next)
-        {
-            Vector2 e0 = cur - prev, e1 = next - cur;
-            Vector2 n0 = new Vector2(-e0.y, e0.x).normalized;
-            Vector2 n1 = new Vector2(-e1.y, e1.x).normalized;
-            Vector2 n = n0 + n1;
-            if (n.sqrMagnitude < 1e-8f) return n0;
-            n.Normalize();
-            float cos = Vector2.Dot(n, n0);
-            return n / Mathf.Max(cos, 0.5f);
-        }
-
-        // Must match PuzzleBoard.StableHash so the clip shows the same cut the player solved.
-        static int StableHash(string s)
-        {
-            unchecked
-            {
-                int h = 23;
-                foreach (char ch in s) h = h * 31 + ch;
-                return h;
-            }
         }
     }
 }
