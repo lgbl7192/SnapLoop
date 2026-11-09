@@ -70,7 +70,8 @@ namespace Snaploop.UI
             var row = chipsRow.gameObject.AddComponent<HorizontalLayoutGroup>();
             row.childAlignment = TextAnchor.MiddleCenter;
             row.spacing = T.U(8f);
-            row.childControlWidth = row.childControlHeight = false;
+            row.childControlWidth = true;
+            row.childControlHeight = false;
             row.childForceExpandWidth = row.childForceExpandHeight = false;
             timeChip = UIFactory.Chip("Time", chipsRow, "0:00", UISprites.Clock, T.cyan);
             hintChip = UIFactory.Chip("Hints", chipsRow, "No hints", UISprites.Sparkle, T.star);

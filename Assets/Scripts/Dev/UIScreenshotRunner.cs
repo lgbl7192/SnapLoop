@@ -56,7 +56,7 @@ namespace Snaploop.Dev
             yield return ApplySize();
             BuildPhoneChrome();
 
-            yield return Wait(0.3f);
+            // The splash starts fading 0.9 s after launch, so it is shot as soon as the size is applied.
             yield return Step("splash", Shot("splash"), 10f);
             yield return Step("onboarding", Onboarding(), 40f);
             yield return Step("hud", Hud(), 45f);

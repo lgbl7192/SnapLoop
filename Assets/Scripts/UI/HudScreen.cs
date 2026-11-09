@@ -58,7 +58,7 @@ namespace Snaploop.UI
 
             bottom = UIFactory.Band(UIFactory.Rect("BottomBar", Root), 0f, UILayout.BottomBar);
             hint = UIFactory.JuicyButton("Hint", bottom, ButtonTone.Blue, ButtonSize.Large, "Hint", () => onHint(), UISprites.Sparkle);
-            UIFactory.Place((RectTransform)hint.transform, new Vector2(0.5f, 0.5f), new Vector2(T.U(250f), UIFactory.ButtonHeight(ButtonSize.Large)));
+            UIFactory.Place((RectTransform)hint.transform, new Vector2(0.5f, 0.5f), new Vector2(T.U(220f), UIFactory.ButtonHeight(ButtonSize.Large)));
 
             if (onDev != null)
             {

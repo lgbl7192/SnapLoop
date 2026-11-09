@@ -483,7 +483,20 @@ namespace Snaploop.UI
             var parts = b.GetComponent<JuicyButtonParts>();
             parts.label.font = UIFactory.FontFor(TextRole.Label);
             parts.label.fontSize = T.F(T.labelS);
+            parts.label.alignment = TextAnchor.MiddleLeft;
+            parts.label.horizontalOverflow = HorizontalWrapMode.Wrap;
+            parts.label.resizeTextForBestFit = true;
+            parts.label.resizeTextMinSize = T.F(T.labelS * 0.7f);
+            parts.label.resizeTextMaxSize = T.F(T.labelS);
+            parts.label.verticalOverflow = VerticalWrapMode.Truncate;
+            parts.label.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(38f);
             parts.content.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
+            // Long tool labels shrink to the row instead of overflowing it.
+            var texts = parts.label.transform.parent;
+            texts.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft;
+            var le = texts.gameObject.AddComponent<LayoutElement>();
+            le.flexibleWidth = 1f;
+            le.minWidth = 0f;
             b.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(46f);
             return b;
         }

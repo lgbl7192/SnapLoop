@@ -81,7 +81,7 @@ namespace Snaploop.UI
             var chipRow = chips.gameObject.AddComponent<HorizontalLayoutGroup>();
             chipRow.childAlignment = TextAnchor.MiddleLeft;
             chipRow.spacing = T.U(8f);
-            chipRow.childControlWidth = false;
+            chipRow.childControlWidth = true;
             chipRow.childControlHeight = false;
             chipRow.childForceExpandWidth = chipRow.childForceExpandHeight = false;
             starChip = UIFactory.Chip("StarsChip", chips, "0", UISprites.Star, T.star, 36f);
@@ -178,11 +178,13 @@ namespace Snaploop.UI
             var upRow = upChips.gameObject.AddComponent<HorizontalLayoutGroup>();
             upRow.childAlignment = TextAnchor.MiddleLeft;
             upRow.spacing = T.U(8f);
-            upRow.childControlWidth = upRow.childControlHeight = false;
+            upRow.childControlWidth = true;
+            upRow.childControlHeight = false;
             upRow.childForceExpandWidth = upRow.childForceExpandHeight = false;
             upPiecesChip = UIFactory.Chip("Pieces", upChips, "9 tiles", UISprites.Grid, T.cyan, 28f);
             var starsHolder = UIFactory.Rect("StarsHolder", upChips);
             starsHolder.sizeDelta = new Vector2(T.U(76f), T.U(28f));
+            starsHolder.gameObject.AddComponent<LayoutElement>().preferredWidth = T.U(76f);
             upStars = UIFactory.Stars(starsHolder, T.U(20f), T.U(3f));
             UIFactory.Place((RectTransform)upStars[0].transform.parent.parent, new Vector2(0f, 0.5f), new Vector2(T.U(66f), T.U(20f)));
 

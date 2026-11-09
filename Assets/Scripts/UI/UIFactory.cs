@@ -500,8 +500,9 @@ namespace Snaploop.UI
             row.childAlignment = TextAnchor.MiddleCenter;
             row.childControlWidth = row.childControlHeight = true;
             row.childForceExpandWidth = row.childForceExpandHeight = false;
-            var fit = bg.gameObject.AddComponent<ContentSizeFitter>();
-            fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            // Inside a layout group the group sizes the chip (it must control child width); alone it sizes itself.
+            if (parent.GetComponent<LayoutGroup>() == null)
+                bg.gameObject.AddComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             if (icon != null)
             {
                 var ic = Icon("Icon", rt, icon, iconColor ?? T.star, heightDp * 0.55f);
