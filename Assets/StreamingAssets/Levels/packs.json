@@ -14,7 +14,7 @@
       "tokenCost": 150,
       "productId": "com.snaploop.game.pack.sealife",
       "featuredMonths": [],
-      "cover": ""
+      "cover": "sea-turtle"
     },
     {
       "id": "animals",
@@ -22,7 +22,7 @@
       "tokenCost": 150,
       "productId": "com.snaploop.game.pack.animals",
       "featuredMonths": [],
-      "cover": ""
+      "cover": "red-panda"
     },
     {
       "id": "space",
@@ -30,7 +30,7 @@
       "tokenCost": 150,
       "productId": "com.snaploop.game.pack.space",
       "featuredMonths": [],
-      "cover": ""
+      "cover": "cloud-bands"
     },
     {
       "id": "christmas",
@@ -38,7 +38,7 @@
       "tokenCost": 150,
       "productId": "com.snaploop.game.pack.christmas",
       "featuredMonths": [11, 12],
-      "cover": ""
+      "cover": "snowflake-bauble"
     }
   ]
 }
