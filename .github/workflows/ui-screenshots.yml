@@ -31,6 +31,9 @@ env:
 jobs:
   screenshots:
     name: Capture UI screenshots
+    # The throwaway integration PR exists for APK builds; a second Unity job from the same push
+    # would knock its Android build out of the shared seat queue (only one job can wait per group).
+    if: github.head_ref != 'cursor/ci-integration-test-0fc3'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     # Same group as the Android build: a Unity Personal account has one seat, so one Unity job at a time.
