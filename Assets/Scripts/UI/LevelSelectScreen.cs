@@ -4,14 +4,13 @@ using System.Collections.Generic;
 using Snaploop.Core;
 using Snaploop.Levels;
 using UnityEngine;
-using UnityEngine.Networking;
 using UnityEngine.UI;
 
 namespace Snaploop.UI
 {
     /// <summary>
-    /// The hub: progress up top, the brand, an "Up next" card, every puzzle as a thumbnail tile, and one big
-    /// Play button in the thumb zone that names the next puzzle.
+    /// The hub: token wallet and stars up top, the brand, an "Up next" card, the selected theme pack's puzzles as
+    /// thumbnail tiles (with a Packs button to switch), and one big Play button in the thumb zone that names the next puzzle.
     /// </summary>
     public sealed class LevelSelectScreen : UIScreen
     {
@@ -29,14 +28,23 @@ namespace Snaploop.UI
 
         static UITheme T => UITheme.Current;
 
+        const string SelectedPackKey = "packs.selected";
+
         readonly MonoBehaviour host;
         readonly Action<int> onPlay;
-        readonly RectTransform header, viewport, content, gridRoot, upNext, playDock;
+        readonly Action<LevelInfo> onPreview;
+        readonly RectTransform header, viewport, content, gridRoot, upNext, playDock, section;
+        readonly ScrollRect scroll;
         readonly Text message;
         readonly List<Tile> tiles = new List<Tile>();
-        readonly Dictionary<string, Texture2D> thumbs = new Dictionary<string, Texture2D>();
 
-        readonly RectTransform starChip, clearedChip, sectionCount;
+        readonly RectTransform starChip;
+        readonly TokenPill tokenPill;
+        readonly Text sectionTitle, sectionCaps;
+        readonly Button packsButton;
+        readonly Image packsDot;
+        readonly RectTransform packCardRow;
+        readonly PackCard packCard;
         readonly Button playButton;
         readonly Pulse playPulse;
         readonly Brand.LoopMark mark;
@@ -49,7 +57,8 @@ namespace Snaploop.UI
         readonly RectTransform upPiecesChip;
         readonly Image upAccent;
 
-        int nextIndex;
+        PackInfo builtFor;
+        int nextIndex = -1;
         int devTaps;
         float devTapTime;
 
@@ -63,10 +72,12 @@ namespace Snaploop.UI
         float TileW => (UILayout.ReferenceWidth - 2f * Pad - (Columns - 1) * T.U(T.gap)) / Columns;
         float TileH => T.U(178f);
 
-        public LevelSelectScreen(Transform safeRoot, MonoBehaviour coroutineHost, Action<int> onPlay, Action onSettings)
+        public LevelSelectScreen(Transform safeRoot, MonoBehaviour coroutineHost, Action<int> onPlay, Action onSettings,
+            Action onOpenPacks, Action<LevelInfo> onPreview)
         {
             host = coroutineHost;
             this.onPlay = onPlay;
+            this.onPreview = onPreview;
             Root = UIFactory.Stretch(UIFactory.Rect("LevelSelect", safeRoot));
 
             // ---------------------------------------------------------------- header (fixed)
@@ -76,7 +87,7 @@ namespace Snaploop.UI
             var chips = UIFactory.Rect("Chips", header);
             chips.anchorMin = new Vector2(0f, 0f);
             chips.anchorMax = new Vector2(0.7f, 1f);
-            chips.offsetMin = new Vector2(Pad, 0f);
+            chips.offsetMin = new Vector2(Pad + T.U(8f), 0f);
             chips.offsetMax = Vector2.zero;
             var chipRow = chips.gameObject.AddComponent<HorizontalLayoutGroup>();
             chipRow.childAlignment = TextAnchor.MiddleLeft;
@@ -84,8 +95,8 @@ namespace Snaploop.UI
             chipRow.childControlWidth = true;
             chipRow.childControlHeight = false;
             chipRow.childForceExpandWidth = chipRow.childForceExpandHeight = false;
+            tokenPill = new TokenPill("TokenPill", chips, 36f);
             starChip = UIFactory.Chip("StarsChip", chips, "0", UISprites.Star, T.star, 36f);
-            clearedChip = UIFactory.Chip("ClearedChip", chips, "0/0", UISprites.Check, T.green, 36f);
 
             var gear = UIFactory.RoundButton("Settings", header, UISprites.Gear, () => onSettings());
             UIFactory.Place((RectTransform)gear.transform, new Vector2(1f, 0.5f), ((RectTransform)gear.transform).sizeDelta, new Vector2(-Pad, 0f));
@@ -102,7 +113,7 @@ namespace Snaploop.UI
             var viewportImage = UIFactory.Image("Viewport", Root, new Color(0, 0, 0, 0), null, raycast: true);
             viewport = UIFactory.Stretch(viewportImage.rectTransform, 0, 0, headerH, 0);
             viewportImage.gameObject.AddComponent<RectMask2D>();
-            var scroll = viewportImage.gameObject.AddComponent<ScrollRect>();
+            scroll = viewportImage.gameObject.AddComponent<ScrollRect>();
             scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Elastic;
             scroll.scrollSensitivity = 30f;
@@ -150,7 +161,7 @@ namespace Snaploop.UI
             upBtn.transition = Selectable.Transition.None;
             upBtn.targetGraphic = upNext.Find("Face").GetComponent<Image>();
             upBtn.onClick.AddListener(Sfx.PlayClick);
-            upBtn.onClick.AddListener(() => this.onPlay(nextIndex));
+            upBtn.onClick.AddListener(() => { if (nextIndex >= 0) this.onPlay(nextIndex); });
             upNext.gameObject.AddComponent<JuicyPress>().Bind(null, 0f, 0.025f);
 
             float thumbW = T.U(88f), thumbH = T.U(126f);
@@ -188,13 +199,29 @@ namespace Snaploop.UI
             upStars = UIFactory.Stars(starsHolder, T.U(20f), T.U(3f));
             UIFactory.Place((RectTransform)upStars[0].transform.parent.parent, new Vector2(0f, 0.5f), new Vector2(T.U(66f), T.U(20f)));
 
-            // All puzzles.
-            var section = UIFactory.Rect("Section", content);
-            section.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(26f);
-            var sectionLabel = UIFactory.Text("Label", section, "All puzzles", TextRole.Caps, T.caps, T.textDim, TextAnchor.MiddleLeft);
-            UIFactory.Stretch(sectionLabel.rectTransform, Pad + T.U(4f), Pad, 0, 0);
-            var sc = UIFactory.Text("Count", section, "", TextRole.Label, T.labelS, T.textMute, TextAnchor.MiddleRight);
-            sectionCount = UIFactory.Stretch(sc.rectTransform, Pad, Pad + T.U(4f), 0, 0);
+            // The selected pack: title, progress caps and the Packs button (pink: unlocks live there).
+            section = UIFactory.Rect("Section", content);
+            section.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(58f);
+            float packsW = T.U(124f);
+            sectionTitle = UIFactory.Text("Title", section, "All puzzles", TextRole.Title, T.titleS, Color.white, TextAnchor.UpperLeft);
+            var strt = sectionTitle.rectTransform;
+            strt.anchorMin = new Vector2(0f, 1f); strt.anchorMax = new Vector2(1f, 1f); strt.pivot = new Vector2(0f, 1f);
+            strt.offsetMin = new Vector2(Pad + T.U(4f), -T.U(34f)); strt.offsetMax = new Vector2(-Pad - packsW - T.U(8f), -T.U(4f));
+            sectionCaps = UIFactory.Text("Count", section, "", TextRole.Caps, T.caps, T.textDim, TextAnchor.UpperLeft);
+            var scrt = sectionCaps.rectTransform;
+            scrt.anchorMin = new Vector2(0f, 1f); scrt.anchorMax = new Vector2(1f, 1f); scrt.pivot = new Vector2(0f, 1f);
+            scrt.offsetMin = new Vector2(Pad + T.U(4f), -T.U(56f)); scrt.offsetMax = new Vector2(-Pad - packsW - T.U(8f), -T.U(38f));
+            packsButton = UIFactory.JuicyButton("Packs", section, ButtonTone.Pink, ButtonSize.Medium, "Packs", () => onOpenPacks?.Invoke(), UISprites.Grid);
+            UIFactory.Place((RectTransform)packsButton.transform, new Vector2(1f, 0.5f), new Vector2(packsW, UIFactory.ButtonHeight(ButtonSize.Medium)), new Vector2(-Pad, 0f));
+            packsDot = UIFactory.Image("Dot", packsButton.transform, T.dot, UISprites.Circle);
+            UIFactory.Place(packsDot.rectTransform, new Vector2(1f, 1f), new Vector2(T.U(16f), T.U(16f)), new Vector2(T.U(3f), T.U(3f)));
+            UIFactory.Ink(packsDot, 1.5f);
+
+            // A locked or empty pack shows its card (unlock / buy / coming soon) above its tiles.
+            packCardRow = UIFactory.Rect("PackCardRow", content);
+            packCardRow.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(PackCard.HeightDp);
+            packCard = new PackCard("PackCard", packCardRow, host, null, showPlay: false);
+            UIFactory.Stretch(packCard.Root, Pad, Pad, 0, 0);
 
             gridRoot = UIFactory.Rect("Grid", content);
             var grid = gridRoot.gameObject.AddComponent<GridLayoutGroup>();
@@ -215,7 +242,7 @@ namespace Snaploop.UI
             UIFactory.Stretch(fade.rectTransform, 0, 0, 0, -T.U(40f));
             UIFactory.Gradient(fade, new Color(T.bgBottom.r, T.bgBottom.g, T.bgBottom.b, 0f), new Color(T.bgBottom.r, T.bgBottom.g, T.bgBottom.b, 0.96f));
             playButton = UIFactory.JuicyButton("Play", playDock, ButtonTone.Primary, ButtonSize.Hero, "Play",
-                () => this.onPlay(nextIndex), UISprites.Play, "Level 1");
+                () => { if (nextIndex >= 0) this.onPlay(nextIndex); }, UISprites.Play, "Level 1");
             var prt = (RectTransform)playButton.transform;
             prt.anchorMin = new Vector2(0f, 0f);
             prt.anchorMax = new Vector2(1f, 0f);
@@ -229,6 +256,8 @@ namespace Snaploop.UI
             UIFactory.Place(message.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(T.U(320f), T.U(160f)));
 
             GameServices.LevelSelectBottomInsetChanged += ApplyBottomInset;
+            Tokens.Changed += OnWalletChanged;
+            GameServices.PacksChanged += OnWalletChanged;
             ApplyBottomInset();
             Hide();
         }
@@ -242,6 +271,11 @@ namespace Snaploop.UI
             playDock.anchoredPosition = new Vector2(0f, units);
         }
 
+        void OnWalletChanged()
+        {
+            if (IsVisible) Refresh();
+        }
+
         void OnWordmarkTap()
         {
             if (Time.unscaledTime - devTapTime > 0.6f) devTaps = 0;
@@ -253,26 +287,69 @@ namespace Snaploop.UI
             }
         }
 
+        // ---------------------------------------------------------------- packs
+
+        /// <summary>The pack whose puzzles the grid shows; remembered across launches, starter by default.</summary>
+        public PackInfo CurrentPack
+        {
+            get
+            {
+                var p = PackCatalog.Get(PlayerPrefs.GetString(SelectedPackKey, PackInfo.StarterId));
+                return p ?? PackCatalog.Starter;
+            }
+        }
+
+        /// <summary>Shows <paramref name="pack"/>'s puzzles and scrolls to them.</summary>
+        public void SelectPack(PackInfo pack)
+        {
+            if (pack == null) return;
+            PlayerPrefs.SetString(SelectedPackKey, pack.id);
+            PlayerPrefs.Save();
+            RebuildGrid();
+            Refresh();
+            if (IsVisible)
+            {
+                host.StartCoroutine(LoadThumbnails());
+                ScrollToSection();
+            }
+        }
+
+        void ScrollToSection()
+        {
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            float top = -section.anchoredPosition.y - section.rect.height * (1f - section.pivot.y) - T.U(8f);
+            float max = Mathf.Max(0f, content.rect.height - viewport.rect.height);
+            scroll.StopMovement();
+            content.anchoredPosition = new Vector2(content.anchoredPosition.x, Mathf.Clamp(top, 0f, max));
+        }
+
         public void Build(IReadOnlyList<LevelInfo> levels, string error)
         {
-            foreach (var c in tiles) UnityEngine.Object.Destroy(c.Button.gameObject);
-            tiles.Clear();
             message.text = error ?? (levels.Count == 0 ? "No levels found." : "");
-            upNext.gameObject.SetActive(levels.Count > 0);
-            playButton.gameObject.SetActive(levels.Count > 0);
-
-            for (int i = 0; i < levels.Count; i++)
-                tiles.Add(BuildTile(levels[i], i));
+            builtFor = null;
+            RebuildGrid();
             Refresh();
         }
 
-        Tile BuildTile(LevelInfo level, int index)
+        void RebuildGrid()
+        {
+            var pack = CurrentPack;
+            if (pack == builtFor && tiles.Count == (pack?.Levels.Count ?? 0)) return;
+            foreach (var c in tiles) UnityEngine.Object.Destroy(c.Button.gameObject);
+            tiles.Clear();
+            builtFor = pack;
+            if (pack == null) return;
+            foreach (var level in pack.Levels) tiles.Add(BuildTile(level));
+        }
+
+        Tile BuildTile(LevelInfo level)
         {
             float r = T.radiusMd;
             var tile = new Tile { Level = level };
             Color accent = T.Category(level.category);
 
-            var root = UIFactory.Rect("Level" + (index + 1), gridRoot);
+            var root = UIFactory.Rect("Level" + (level.PackIndex + 1), gridRoot);
             var hit = root.gameObject.AddComponent<Image>();
             hit.color = Color.clear;
             hit.raycastTarget = true;
@@ -308,7 +385,7 @@ namespace Snaploop.UI
             tile.NumberDisc = UIFactory.Image("Number", root, accent, UISprites.Circle);
             UIFactory.Place(tile.NumberDisc.rectTransform, new Vector2(0f, 1f), new Vector2(T.U(30f), T.U(30f)), new Vector2(T.U(9f), -T.U(9f)));
             UIFactory.Ink(tile.NumberDisc, 1.5f);
-            var num = UIFactory.Text("Text", tile.NumberDisc.transform, (index + 1).ToString(), TextRole.Number, 15f, Color.white);
+            var num = UIFactory.Text("Text", tile.NumberDisc.transform, (level.PackIndex + 1).ToString(), TextRole.Number, 15f, Color.white);
             UIFactory.Stretch(num.rectTransform, 0, 0, 0, T.U(1f));
             num.horizontalOverflow = HorizontalWrapMode.Overflow;
 
@@ -345,15 +422,24 @@ namespace Snaploop.UI
             tile.Button.targetGraphic = hit;
             var nav = tile.Button.navigation; nav.mode = Navigation.Mode.None; tile.Button.navigation = nav;
             tile.Button.onClick.AddListener(Sfx.PlayClick);
-            tile.Button.onClick.AddListener(() => onPlay(index));
+            tile.Button.onClick.AddListener(() => OnTileTapped(level));
             root.gameObject.AddComponent<JuicyPress>().Bind(null, 0f, 0.06f);
+            if (Thumbnails.TryGet(level.id, out var cached)) ApplyThumb(tile, cached);
             return tile;
+        }
+
+        void OnTileTapped(LevelInfo level)
+        {
+            if (PackAccess.IsLevelUnlocked(level)) onPlay(level.Index);
+            else if (!PackAccess.IsUnlocked(PackCatalog.For(level))) onPreview?.Invoke(level);
         }
 
         public override void Show()
         {
             base.Show();
+            RebuildGrid();
             Refresh();
+            tokenPill.Refresh(false);
             host.StartCoroutine(LoadThumbnails());
             GameEvents.SetLevelSelectVisible(true);
             PlayEntrance();
@@ -389,124 +475,155 @@ namespace Snaploop.UI
             mark.SetSnap(1f);
         }
 
-        public static bool IsUnlocked(IReadOnlyList<LevelInfo> levels, int i)
+        /// <summary>
+        /// The global index of the next puzzle to play: the first open, uncleared puzzle in the selected pack, then in
+        /// the other unlocked packs (display order); when everything open is cleared, the selected pack's first puzzle.
+        /// </summary>
+        static int FindNext(PackInfo current)
         {
-            if (i <= 0 || Progress.UnlockAll) return true;
-            return Progress.IsCleared(levels[i].id) || Progress.IsCleared(levels[i - 1].id);
+            int found = FirstOpenUncleared(current);
+            if (found >= 0) return found;
+            foreach (var p in PackAccess.InDisplayOrder())
+            {
+                if (p == current) continue;
+                found = FirstOpenUncleared(p);
+                if (found >= 0) return found;
+            }
+            if (current != null && !current.IsEmpty && PackAccess.IsUnlocked(current)) return current.Levels[0].Index;
+            var starter = PackCatalog.Starter;
+            return starter != null && !starter.IsEmpty ? starter.Levels[0].Index : -1;
         }
 
-        /// <summary>The first unlocked level not yet cleared, or the first level when everything is cleared.</summary>
-        static int FindNext(IReadOnlyList<LevelInfo> levels)
+        static int FirstOpenUncleared(PackInfo pack)
         {
-            for (int i = 0; i < levels.Count; i++)
-                if (!Progress.IsCleared(levels[i].id) && IsUnlocked(levels, i)) return i;
-            return 0;
+            if (pack == null || !PackAccess.IsUnlocked(pack)) return -1;
+            foreach (var l in pack.Levels)
+                if (!Progress.IsCleared(l.id) && PackAccess.IsLevelUnlocked(l)) return l.Index;
+            return -1;
         }
 
         public void Refresh()
         {
             var levels = LevelCatalog.Levels;
-            int totalStars = 0, cleared = 0;
-            nextIndex = levels.Count > 0 ? FindNext(levels) : -1;
+            var pack = CurrentPack;
+            bool packOpen = PackAccess.IsUnlocked(pack);
+            nextIndex = levels.Count > 0 ? FindNext(pack) : -1;
+
+            int cleared = 0;
             for (int i = 0; i < tiles.Count; i++)
             {
                 var c = tiles[i];
                 int s = Progress.GetStars(c.Level.id);
                 bool isCleared = Progress.IsCleared(c.Level.id);
-                bool unlocked = IsUnlocked(levels, i);
-                bool isNext = i == nextIndex && !isCleared;
-                totalStars += s;
+                bool unlocked = PackAccess.IsLevelUnlocked(c.Level);
+                bool isNext = c.Level.Index == nextIndex && !isCleared;
                 if (isCleared) cleared++;
 
                 UIFactory.SetStars(c.Stars, s);
                 c.Stars[0].transform.parent.parent.gameObject.SetActive(unlocked);
-                c.Check.gameObject.SetActive(isCleared);
+                c.Check.gameObject.SetActive(isCleared && packOpen);
                 c.Lock.gameObject.SetActive(!unlocked);
                 c.Dim.gameObject.SetActive(!unlocked);
                 c.NumberDisc.gameObject.SetActive(unlocked);
                 c.Group.alpha = unlocked ? 1f : 0.75f;
-                c.Button.interactable = unlocked;
+                // Locked-pack tiles stay tappable: they open a preview.
+                c.Button.interactable = unlocked || !packOpen;
                 c.NextFx.SetActive(isNext);
                 c.Flame.SetActive(isNext);
                 c.PlayPulse.gameObject.SetActive(isNext);
                 if (isNext) c.PlayPulse.Restart();
             }
 
-            UIFactory.ChipText(starChip).text = totalStars + " / " + levels.Count * 3;
-            UIFactory.ChipText(clearedChip).text = cleared + " / " + levels.Count;
-            ((Text)sectionCount.GetComponent<Text>()).text = cleared + " of " + levels.Count + " cleared";
+            int totalStars = 0, maxStars = 0;
+            foreach (var p in PackCatalog.Packs)
+            {
+                if (!PackAccess.IsUnlocked(p)) continue;
+                totalStars += PackAccess.StarsIn(p, out int m);
+                maxStars += m;
+            }
+            UIFactory.ChipText(starChip).text = totalStars + " / " + maxStars;
+            tokenPill.Refresh(true);
 
+            int n = pack?.Levels.Count ?? 0;
+            sectionTitle.text = pack == null ? "All puzzles" : pack.DisplayTitle;
+            sectionCaps.text = UIFactory.Track(n == 0 ? "Coming soon"
+                : packOpen ? cleared + " of " + n + " cleared"
+                : "Locked · " + n + (n == 1 ? " puzzle" : " puzzles"));
+            sectionCaps.color = n > 0 && !packOpen ? T.pink : T.textDim;
+            packsDot.gameObject.SetActive(AnyAffordableLockedPack());
+            packCardRow.gameObject.SetActive(pack != null && (!packOpen || pack.IsEmpty));
+            if (packCardRow.gameObject.activeSelf)
+            {
+                if (packCard.Pack != pack) packCard.Bind(pack);
+                else packCard.Refresh();
+            }
+
+            upNext.gameObject.SetActive(nextIndex >= 0);
+            playButton.gameObject.SetActive(nextIndex >= 0);
             if (nextIndex >= 0)
             {
                 var next = levels[nextIndex];
-                bool allDone = cleared == levels.Count;
+                var nextPack = PackCatalog.For(next);
+                bool allDone = Progress.IsCleared(next.id);
                 Color accent = T.Category(next.category);
-                upCaps.text = UIFactory.Track((allDone ? "Play again" : "Up next") + " · Level " + (nextIndex + 1));
+                string where = LevelLabel(next, nextPack);
+                upCaps.text = UIFactory.Track((allDone ? "Play again" : "Up next") + " · " + where);
                 upCaps.color = accent;
                 upAccent.color = accent;
                 upTitle.text = next.DisplayTitle;
                 UIFactory.ChipText(upPiecesChip).text = next.PieceCount + " tiles";
                 UIFactory.SetStars(upStars, Progress.GetStars(next.id));
-                upThumb.color = thumbs.TryGetValue(next.id, out var tex) && tex != null ? Color.white : Color.Lerp(accent, T.surfaceLow, 0.35f);
+                upThumb.color = Thumbnails.TryGet(next.id, out var tex) && tex != null ? Color.white : Color.Lerp(accent, T.surfaceLow, 0.35f);
                 if (tex != null) ApplyUpNextThumb(tex);
-                UIFactory.SetButtonText(playButton, "Play", "Level " + (nextIndex + 1) + " · " + next.DisplayTitle);
+                UIFactory.SetButtonText(playButton, "Play", where + " · " + next.DisplayTitle);
             }
+        }
+
+        /// <summary>"Level 3" in the starter pack, "Space 3" elsewhere.</summary>
+        public static string LevelLabel(LevelInfo level, PackInfo pack)
+        {
+            string prefix = pack == null || pack.IsStarter ? "Level" : pack.DisplayTitle;
+            return prefix + " " + (level.PackIndex + 1);
+        }
+
+        static bool AnyAffordableLockedPack()
+        {
+            foreach (var p in PackCatalog.Packs)
+                if (!p.IsEmpty && !PackAccess.IsUnlocked(p) && PackAccess.CanAfford(p)) return true;
+            return false;
         }
 
         // Optional thumbnails: StreamingAssets/Levels/<id>.jpg. Missing files just keep the category colour.
         IEnumerator LoadThumbnails()
         {
             yield return null;
-            if (nextIndex >= 0 && nextIndex < tiles.Count) yield return LoadThumb(tiles[nextIndex]);
-            foreach (var c in tiles)
+            if (nextIndex >= 0)
             {
-                if (!IsVisible) yield break;
-                yield return LoadThumb(c);
+                var next = LevelCatalog.Get(nextIndex);
+                if (next != null) yield return Thumbnails.Load(next.id, tex => { if (tex != null && LevelCatalog.Get(nextIndex) == next) ApplyUpNextThumb(tex); });
             }
-        }
-
-        IEnumerator LoadThumb(Tile c)
-        {
-            if (thumbs.TryGetValue(c.Level.id, out var cached))
+            var snapshot = tiles.ToArray();
+            foreach (var c in snapshot)
             {
-                ApplyThumb(c, cached);
-                yield break;
-            }
-            string url = LevelCatalog.GetLevelFileUrl(c.Level.id + ".jpg");
-            using (var req = UnityWebRequestTexture.GetTexture(url, true))
-            {
-                yield return req.SendWebRequest();
-                Texture2D tex = null;
-                if (req.result == UnityWebRequest.Result.Success) tex = DownloadHandlerTexture.GetContent(req);
-                thumbs[c.Level.id] = tex;
-                ApplyThumb(c, tex);
+                if (!IsVisible || builtFor != CurrentPack) yield break;
+                yield return Thumbnails.Load(c.Level.id, tex => ApplyThumb(c, tex));
             }
         }
 
         void ApplyThumb(Tile c, Texture2D tex)
         {
-            if (tex == null) return;
+            if (tex == null || c.Thumb == null) return;
             c.Thumb.texture = tex;
             c.Thumb.color = Color.white;
-            c.Thumb.uvRect = CoverRect(c.Thumb.rectTransform.rect, tex);
-            if (nextIndex >= 0 && nextIndex < tiles.Count && tiles[nextIndex] == c) ApplyUpNextThumb(tex);
+            c.Thumb.uvRect = Thumbnails.CoverRect(c.Thumb.rectTransform.rect, tex);
         }
 
         void ApplyUpNextThumb(Texture2D tex)
         {
             upThumb.texture = tex;
             upThumb.color = Color.white;
-            upBurns.baseRect = CoverRect(upThumb.rectTransform.rect, tex);
+            upBurns.baseRect = Thumbnails.CoverRect(upThumb.rectTransform.rect, tex);
             upThumb.uvRect = upBurns.baseRect;
-        }
-
-        static Rect CoverRect(Rect area, Texture2D tex)
-        {
-            if (area.width <= 0 || area.height <= 0) return new Rect(0, 0, 1, 1);
-            float areaAspect = area.width / area.height, texAspect = tex.width / (float)tex.height;
-            return texAspect > areaAspect
-                ? new Rect((1f - areaAspect / texAspect) * 0.5f, 0f, areaAspect / texAspect, 1f)
-                : new Rect(0f, (1f - texAspect / areaAspect) * 0.5f, 1f, texAspect / areaAspect);
         }
     }
 }

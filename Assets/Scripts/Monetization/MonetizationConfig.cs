@@ -61,6 +61,8 @@ namespace Snaploop.Monetization
 
         [Header("Placements (reported to the network)")]
         public string hintPlacement = "hint";
+        [Tooltip("Rewarded \"Double tokens\" button on the win card.")]
+        public string doubleTokensPlacement = "double_tokens";
         public string nextLevelPlacement = "next_level";
         public string levelSelectBannerPlacement = "level_select";
 
@@ -77,6 +79,10 @@ namespace Snaploop.Monetization
 
         [Tooltip("Shown until the store returns the localized price.")]
         public string removeAdsFallbackPrice = "$4.99";
+
+        [Header("Theme pack in-app purchases")]
+        [Tooltip("Shown on every pack's Buy button until the store returns the localized price. Product ids are in StreamingAssets/Levels/packs.json.")]
+        public string packFallbackPrice = "$1.99";
 
         [Tooltip("Editor and development builds use the built-in fake store (no money, no Play account). Turn off to test real Google Play billing from a development build.")]
         public bool fakeStoreInDevelopmentBuilds = true;

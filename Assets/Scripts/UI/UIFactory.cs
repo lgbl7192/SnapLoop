@@ -613,6 +613,45 @@ namespace Snaploop.UI
             for (int i = 0; i < stars.Length; i++) SetStar(stars[i], i < count);
         }
 
+        // ------------------------------------------------------------ tokens
+
+        /// <summary>
+        /// Snaploop's token glyph (our own mark, not a coin): a rounded hexagon in the golden-hour gradient over a
+        /// purple rim, with an embossed jigsaw piece and a gloss. Size in canvas units.
+        /// </summary>
+        public static RectTransform TokenIcon(string name, Transform parent, float sizeUnits)
+        {
+            var root = Rect(name, parent);
+            root.sizeDelta = new Vector2(sizeUnits, sizeUnits);
+            var rim = Image("Rim", root, T.tokenRim, UISprites.TokenHexInk);
+            Stretch(rim.rectTransform, 0, 0, sizeUnits * 0.07f, -sizeUnits * 0.07f);
+            var ink = Image("Ink", root, T.InkColor, UISprites.TokenHexInk);
+            Stretch(ink.rectTransform);
+            var face = Image("Face", root, Color.white, UISprites.TokenHex);
+            Stretch(face.rectTransform);
+            Gradient(face, T.sunsetA, T.sunsetB);
+            var emboss = Image("PieceShadow", face.transform, new Color(T.tokenRim.r, T.tokenRim.g, T.tokenRim.b, 0.35f), UISprites.TokenPiece);
+            Stretch(emboss.rectTransform, sizeUnits * 0.22f, sizeUnits * 0.22f, sizeUnits * 0.25f, sizeUnits * 0.19f);
+            var piece = Image("Piece", face.transform, new Color(1f, 1f, 1f, 0.92f), UISprites.TokenPiece);
+            Stretch(piece.rectTransform, sizeUnits * 0.22f, sizeUnits * 0.22f, sizeUnits * 0.22f, sizeUnits * 0.22f);
+            var gloss = Image("Gloss", face.transform, new Color(1, 1, 1, 0.45f), UISprites.Circle);
+            Place(gloss.rectTransform, new Vector2(0.33f, 0.74f), new Vector2(sizeUnits * 0.14f, sizeUnits * 0.08f));
+            gloss.rectTransform.localEulerAngles = new Vector3(0, 0, 30f);
+            return root;
+        }
+
+        /// <summary>A <see cref="Chip"/> led by the token glyph, e.g. "+8" on the win card.</summary>
+        public static RectTransform TokenChip(string name, Transform parent, string text, float heightDp = 30f)
+        {
+            var chip = Chip(name, parent, text, null, null, heightDp);
+            chip.GetComponent<HorizontalLayoutGroup>().padding.left = (int)T.U(6f);
+            var icon = TokenIcon("Token", chip, T.U(heightDp * 0.72f));
+            icon.SetAsFirstSibling();
+            var le = icon.gameObject.AddComponent<LayoutElement>();
+            le.preferredWidth = le.preferredHeight = T.U(heightDp * 0.72f);
+            return chip;
+        }
+
         // ------------------------------------------------------------ gauges and switches
 
         public sealed class RingGauge

@@ -13,5 +13,6 @@
     <Compile Include="AdPolicyTests.cs" />
     <Compile Include="../../Assets/Scripts/Monetization/Ads/Policy/*.cs" />
     <Compile Include="../../Assets/Scripts/Monetization/Ads/IAdNetwork.cs" />
+    <Compile Include="../../Assets/Scripts/Core/EconomyRules.cs" />
   </ItemGroup>
 </Project>

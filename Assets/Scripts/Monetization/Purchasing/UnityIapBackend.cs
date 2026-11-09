@@ -7,36 +7,58 @@ using UnityEngine.Purchasing;
 namespace Snaploop.Monetization
 {
     /// <summary>
-    /// Google Play billing through Unity IAP 5 (com.unity.purchasing). Sells one non-consumable.
-    /// The entitlement is granted on <c>OnPurchasePending</c>, before the purchase is confirmed,
+    /// Google Play billing through Unity IAP 5 (com.unity.purchasing). Sells non-consumables only (Remove Ads,
+    /// theme packs). An entitlement is granted on <c>OnPurchasePending</c>, before the purchase is confirmed,
     /// so an interrupted confirmation is re-delivered on the next launch instead of being lost.
     /// </summary>
     public sealed class UnityIapBackend : IPurchaseBackend
     {
         StoreController store;
-        string productId;
-        Product product;
+        readonly List<string> productIds = new List<string>();
+        readonly Dictionary<string, Product> products = new Dictionary<string, Product>();
         bool connecting, connected;
+        string pendingProductId;
         Action<PurchaseOutcome, string> pendingPurchase;
-        Action<bool, string> pendingRestore;
+        Action<IReadOnlyList<string>, string> pendingRestore;
 
         public string Name => "Unity IAP";
-        public bool IsReady => connected && product != null && product.availableToPurchase;
 
-        public string LocalizedPrice
+        public bool IsReady(string productId) =>
+            connected && products.TryGetValue(productId ?? "", out var p) && p != null && p.availableToPurchase;
+
+        public string LocalizedPrice(string productId)
         {
-            get
-            {
-                string price = product?.metadata?.localizedPriceString;
-                return string.IsNullOrEmpty(price) ? null : price;
-            }
+            products.TryGetValue(productId ?? "", out var p);
+            string price = p?.metadata?.localizedPriceString;
+            return string.IsNullOrEmpty(price) ? null : price;
         }
 
-        public event Action OwnershipFound;
+        public event Action<string> OwnershipFound;
 
-        public async void Initialize(string id)
+        /// <summary>Products registered after the store connected (theme packs, once packs.json is read) are fetched then.</summary>
+        public void Initialize(IReadOnlyList<StoreProduct> list)
         {
-            productId = id;
+            bool added = false;
+            if (list != null)
+                foreach (var p in list)
+                    if (!string.IsNullOrEmpty(p?.Id) && !productIds.Contains(p.Id))
+                    {
+                        productIds.Add(p.Id);
+                        added = true;
+                    }
+            if (connected && added) FetchAllProducts();
+            else Connect();
+        }
+
+        void FetchAllProducts()
+        {
+            var defs = new List<ProductDefinition>();
+            foreach (var id in productIds) defs.Add(new ProductDefinition(id, ProductType.NonConsumable));
+            store.FetchProducts(defs);
+        }
+
+        async void Connect()
+        {
             if (connecting || connected) return;
             connecting = true;
             try
@@ -78,11 +100,11 @@ namespace Snaploop.Monetization
             }
         }
 
-        public void Purchase(Action<PurchaseOutcome, string> onDone)
+        public void Purchase(string productId, Action<PurchaseOutcome, string> onDone)
         {
-            if (!IsReady)
+            if (!IsReady(productId))
             {
-                Initialize(productId);
+                Connect();
                 onDone(PurchaseOutcome.Failed, "The store isn't available right now. Check your connection and try again.");
                 return;
             }
@@ -91,16 +113,17 @@ namespace Snaploop.Monetization
                 onDone(PurchaseOutcome.Failed, "A purchase is already in progress.");
                 return;
             }
+            pendingProductId = productId;
             pendingPurchase = onDone;
-            store.PurchaseProduct(product);
+            store.PurchaseProduct(products[productId]);
         }
 
-        public void Restore(Action<bool, string> onDone)
+        public void Restore(Action<IReadOnlyList<string>, string> onDone)
         {
             if (!connected)
             {
-                Initialize(productId);
-                onDone(false, "The store isn't available right now. Check your connection and try again.");
+                Connect();
+                onDone(Array.Empty<string>(), "The store isn't available right now. Check your connection and try again.");
                 return;
             }
             if (pendingRestore != null) return;
@@ -113,20 +136,24 @@ namespace Snaploop.Monetization
         void OnStoreConnected()
         {
             connected = true;
-            store.FetchProducts(new List<ProductDefinition> { new ProductDefinition(productId, ProductType.NonConsumable) });
+            FetchAllProducts();
         }
 
         void OnStoreDisconnected(StoreConnectionFailureDescription d)
         {
             connected = false;
             Debug.LogWarning("[Monetization] Store disconnected: " + d?.Message);
-            FinishRestore(false, "The store isn't available right now.");
+            FinishRestore(Array.Empty<string>(), "The store isn't available right now.");
         }
 
-        void OnProductsFetched(List<Product> products)
+        void OnProductsFetched(List<Product> fetched)
         {
-            product = store.GetProductById(productId);
-            if (product == null) Debug.LogWarning("[Monetization] Product '" + productId + "' was not returned by the store. Check the product id and that it is active in Play Console.");
+            foreach (var id in productIds)
+            {
+                var p = store.GetProductById(id);
+                if (p != null) products[id] = p;
+                else Debug.LogWarning("[Monetization] Product '" + id + "' was not returned by the store. Check the product id and that it is active in Play Console.");
+            }
             store.FetchPurchases();
         }
 
@@ -137,25 +164,27 @@ namespace Snaploop.Monetization
 
         void OnPurchasesFetched(Orders orders)
         {
-            bool owned = false;
+            var owned = new List<string>();
             foreach (var order in orders.ConfirmedOrders)
-                if (Contains(order)) owned = true;
-            if (owned) OwnershipFound?.Invoke();
+                foreach (var id in OurProducts(order))
+                    if (!owned.Contains(id)) owned.Add(id);
+            foreach (var id in owned) OwnershipFound?.Invoke(id);
             FinishRestore(owned, null);
         }
 
         void OnPurchasesFetchFailed(PurchasesFetchFailureDescription d)
         {
             Debug.LogWarning("[Monetization] Fetching purchases failed: " + d?.Message);
-            FinishRestore(false, "Couldn't reach the store. Try again later.");
+            FinishRestore(Array.Empty<string>(), "Couldn't reach the store. Try again later.");
         }
 
         void OnPurchasePending(PendingOrder order)
         {
-            if (!Contains(order)) return;
-            OwnershipFound?.Invoke();
+            var ids = OurProducts(order);
+            if (ids.Count == 0) return;
+            foreach (var id in ids) OwnershipFound?.Invoke(id);
             store.ConfirmPurchase(order);
-            FinishPurchase(PurchaseOutcome.Purchased, null);
+            if (pendingProductId != null && ids.Contains(pendingProductId)) FinishPurchase(PurchaseOutcome.Purchased, null);
         }
 
         void OnPurchaseConfirmed(Order order)
@@ -187,30 +216,35 @@ namespace Snaploop.Monetization
 
         void OnPurchaseDeferred(DeferredOrder order)
         {
-            FinishPurchase(PurchaseOutcome.Failed, "Payment pending. Ads will be removed once it completes.");
+            FinishPurchase(PurchaseOutcome.Failed, "Payment pending. It unlocks as soon as the payment completes.");
         }
 
-        bool Contains(Order order)
+        List<string> OurProducts(Order order)
         {
+            var ids = new List<string>();
             var items = order?.CartOrdered?.Items();
-            if (items == null) return false;
+            if (items == null) return ids;
             foreach (var item in items)
-                if (item?.Product?.definition?.id == productId) return true;
-            return false;
+            {
+                string id = item?.Product?.definition?.id;
+                if (id != null && productIds.Contains(id) && !ids.Contains(id)) ids.Add(id);
+            }
+            return ids;
         }
 
         void FinishPurchase(PurchaseOutcome outcome, string message)
         {
             var cb = pendingPurchase;
             pendingPurchase = null;
+            pendingProductId = null;
             cb?.Invoke(outcome, message);
         }
 
-        void FinishRestore(bool found, string message)
+        void FinishRestore(IReadOnlyList<string> owned, string message)
         {
             var cb = pendingRestore;
             pendingRestore = null;
-            cb?.Invoke(found, message);
+            cb?.Invoke(owned, message);
         }
     }
 }

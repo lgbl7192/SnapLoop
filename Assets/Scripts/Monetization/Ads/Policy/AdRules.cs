@@ -27,6 +27,8 @@ namespace Snaploop.Monetization
         public bool rewardedEnabled = true;
         public int rewardedMaxPerSession = 8;
         public int rewardedMaxPerDay = 20;
+        /// <summary>The win card's "Double tokens" offer. It shares the rewarded caps above.</summary>
+        public bool doubleTokensEnabled = true;
 
         public bool bannerEnabled = true;
         public int bannerGraceDays = 2;
@@ -68,6 +70,7 @@ namespace Snaploop.Monetization
             Bool("ads_rewarded_enabled", r => r.rewardedEnabled, (r, v) => r.rewardedEnabled = v),
             Int("ads_rewarded_max_per_session", 0, 100, false, r => r.rewardedMaxPerSession, (r, v) => r.rewardedMaxPerSession = v),
             Int("ads_rewarded_max_per_day", 0, 1000, false, r => r.rewardedMaxPerDay, (r, v) => r.rewardedMaxPerDay = v),
+            Bool("ads_rewarded_double_tokens_enabled", r => r.doubleTokensEnabled, (r, v) => r.doubleTokensEnabled = v),
             Bool("ads_banner_enabled", r => r.bannerEnabled, (r, v) => r.bannerEnabled = v),
             Int("ads_banner_grace_days", 0, 3650, true, r => r.bannerGraceDays, (r, v) => r.bannerGraceDays = v),
             Int("ads_banner_grace_sessions", 0, 10000, true, r => r.bannerGraceSessions, (r, v) => r.bannerGraceSessions = v),

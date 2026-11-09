@@ -17,13 +17,19 @@ namespace Snaploop.Levels
         public string credit;
         public string sourceUrl;
         public string license;
+        /// <summary>Optional theme pack id from packs.json. Missing or empty means <see cref="PackInfo.StarterId"/>.</summary>
+        public string pack;
 
         /// <summary>Columns after validation/fallback (see <see cref="DifficultyRamp"/>).</summary>
         [NonSerialized] public int Cols;
         /// <summary>Rows after validation/fallback.</summary>
         [NonSerialized] public int Rows;
-        /// <summary>Position in levels.json (play order).</summary>
+        /// <summary>Position in levels.json across all packs.</summary>
         [NonSerialized] public int Index;
+        /// <summary><see cref="pack"/> after defaulting to the starter pack.</summary>
+        [NonSerialized] public string PackId;
+        /// <summary>Position among the levels of its pack (play order inside the pack).</summary>
+        [NonSerialized] public int PackIndex;
 
         public int PieceCount => Cols * Rows;
 
@@ -57,7 +63,7 @@ namespace Snaploop.Levels
         public const int MinSide = 2;
         public const int MaxSide = 10;
 
-        /// <summary>Grid for the level at <paramref name="index"/>; ramps one step every 3 levels, then holds.</summary>
+        /// <summary>Grid for the level at <paramref name="index"/> within its pack; ramps one step every 3 levels, then holds.</summary>
         public static Vector2Int ForIndex(int index)
         {
             int step = Mathf.Clamp(index / 3, 0, Steps.Length - 1);
