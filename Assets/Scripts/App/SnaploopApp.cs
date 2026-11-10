@@ -79,6 +79,9 @@ namespace Snaploop.App
             board.PieceLanded += OnPieceLanded;
             GameEvents.RevealStarted += OnRevealStarted;
             GameServices.HintOfferChanged += RefreshHintOffer;
+            GameServices.AddDevMenuEntry(
+                () => "Movement: " + (GameSettings.DevFreeDrag ? "free drag" : "grid swap") + " (tap to switch, from next level)",
+                () => GameSettings.DevFreeDrag = !GameSettings.DevFreeDrag);
 
             BuildUI();
         }

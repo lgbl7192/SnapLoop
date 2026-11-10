@@ -9,17 +9,24 @@ using UnityEngine.Rendering;
 namespace Snaploop.Puzzle
 {
     /// <summary>
-    /// Runs one puzzle in free-drag mode: rounded video tiles over the shared video texture, scramble,
-    /// drag with mild magnetism, snapping to the board or to a correct neighbour, groups, hints,
-    /// completion and the reveal.
+    /// Runs one puzzle: rounded video tiles over the shared video texture, scramble, moving tiles and groups,
+    /// joining correct neighbours, hints, completion and the reveal.
+    ///
+    /// Two movement modes share everything else:
+    /// - Grid swap (default). Every tile sits in a grid cell (<see cref="SwapGrid"/>). A dropped tile or group
+    ///   snaps instantly to the nearest cells inside the grid and the tiles it covers slide into the cells it
+    ///   left; every drop is accepted. Picture neighbours that end up side by side join anywhere on the board,
+    ///   with an outline flash. Nothing locks, as in the reference game: any group can be picked up again, and a
+    ///   drop onto part of another group pulls just the covered tiles out of it.
+    /// - Free drag (dev menu toggle, <see cref="GameSettings.DevFreeDrag"/>). Drag with mild magnetism, snap to
+    ///   the board or to a correct neighbour, tiles at home lock.
     ///
     /// Visuals live in <see cref="TileBatch"/> (one mesh, one material, one draw call for all tiles) and
-    /// joins in <see cref="TileGroups"/>; this class only holds the movement rules. A grid-swap mode would
-    /// replace the drag/snap rules below and keep both of those.
+    /// joins in <see cref="TileGroups"/>; this class only holds the movement rules.
     ///
     /// Tiles move as groups. A tile's position is its home position plus its group's offset, so every
-    /// group keeps its tiles in their correct relative layout; offset zero means "in place". Locked
-    /// (placed) tiles all belong to one group at offset zero.
+    /// group keeps its tiles in their correct relative layout; offset zero means "in place". In free drag,
+    /// locked (placed) tiles all belong to one group at offset zero.
     /// </summary>
     public sealed class PuzzleBoard : MonoBehaviour
     {
@@ -38,6 +45,8 @@ namespace Snaploop.Puzzle
         const float LiftScale = 1.05f;
         const float SnapTweenSec = 0.11f;
         const float HintTweenSec = 0.45f;
+        const float SlideTweenSec = 0.12f;
+        const float FlashSec = 0.45f;
         const float IntroHoldSec = 0.75f;
         const float ScrambleTweenSec = 0.55f;
         const float RevealGrowSec = 0.6f;
@@ -71,12 +80,16 @@ namespace Snaploop.Puzzle
         // Created in Init: a Mesh may not be created from a MonoBehaviour constructor or field initializer.
         TileBatch tiles, slots;
         readonly TileGroups groups = new TileGroups();
+        SwapGrid grid;
+        bool swapMode;
+        bool joinPending;
 
         // Per tile.
         Vector2[] home;
         int[] drawOrder;   // tile indices, bottom to top
         bool[] placed, fresh;
-        float[] pop;
+        float[] pop, flash;
+        int[] sizeBefore, layout, groupBefore;
 
         // Per group, indexed by group id (only meaningful while TileGroups.IsGroupId(id)).
         Vector2[] offset;
@@ -86,6 +99,10 @@ namespace Snaploop.Puzzle
         Vector2[] tweenFrom, tweenTo, vacated;
         float[] tweenTime, tweenDuration, tweenDelay;
         bool[] scratch;
+        // Copies of the per-group arrays, used to hand visual state to new group ids after a split.
+        Vector2[] offsetCopy, pivotCopy, tweenFromCopy, tweenToCopy;
+        float[] scaleCopy, targetScaleCopy, tweenTimeCopy, tweenDurationCopy, tweenDelayCopy;
+        bool[] tweeningCopy;
 
         Vector2[] candidates;
         int candidateCount;
@@ -137,6 +154,7 @@ namespace Snaploop.Puzzle
             material.SetColor(BaseId, BaseColor);
             tiles = new TileBatch("Tiles");
             slots = new TileBatch("Slots");
+            grid = new SwapGrid(groups);
 
             slotsGo = MakeRendererObject("Slots", slots.Mesh, -2);
             tilesGo = MakeRendererObject("Tiles", tiles.Mesh, 0);
@@ -246,13 +264,29 @@ namespace Snaploop.Puzzle
             tiles.Build(cols, rows, boardRect, TileColor);
             slots.Build(cols, rows, boardRect, SlotColor);
             slots.Flush();
-            groups.Reset(cols, rows);
+            grid.Reset(cols, rows);
+            swapMode = !GameSettings.DevFreeDrag;
+            joinPending = false;
 
             home = new Vector2[n];
             drawOrder = new int[n];
             placed = new bool[n];
             fresh = new bool[n];
             pop = new float[n];
+            flash = new float[n];
+            sizeBefore = new int[n];
+            layout = new int[n];
+            groupBefore = new int[n];
+            offsetCopy = new Vector2[n];
+            pivotCopy = new Vector2[n];
+            tweenFromCopy = new Vector2[n];
+            tweenToCopy = new Vector2[n];
+            scaleCopy = new float[n];
+            targetScaleCopy = new float[n];
+            tweenTimeCopy = new float[n];
+            tweenDurationCopy = new float[n];
+            tweenDelayCopy = new float[n];
+            tweeningCopy = new bool[n];
             vacated = new Vector2[n];
             offset = new Vector2[n];
             pivot = new Vector2[n];
@@ -332,6 +366,9 @@ namespace Snaploop.Puzzle
 
             bool anyTween = UpdateTweens(dt);
 
+            // Joins wait until every slide has landed and nothing is held, so groups never merge mid-move.
+            if (joinPending && !anyTween && dragGroup < 0) JoinNeighbours();
+
             if (state == State.Scrambling && !anyTween)
             {
                 state = State.Playing;
@@ -341,6 +378,7 @@ namespace Snaploop.Puzzle
             if (state == State.Settling && !anyTween) BeginReveal();
 
             UpdatePops(dt);
+            UpdateFlash(dt);
             UpdateDragShadow();
             WriteDirtyTiles();
             tiles.Flush();
@@ -405,6 +443,7 @@ namespace Snaploop.Puzzle
 
         void StartScramble()
         {
+            if (swapMode) { StartSwapScramble(); return; }
             int n = home.Length;
             // Sattolo's algorithm: a random single cycle, so no tile starts in its own cell.
             var perm = new int[n];
@@ -433,6 +472,22 @@ namespace Snaploop.Puzzle
             state = State.Scrambling;
             stateTime = 0f;
         }
+
+        // Tiles deal straight onto cells: no tile starts home and no two picture neighbours start joined.
+        void StartSwapScramble()
+        {
+            var rng = new System.Random(Environment.TickCount);
+            SwapGrid.Scramble(level.Cols, level.Rows, rng, layout);
+            grid.SetLayout(layout);
+            for (int i = 0; i < home.Length; i++)
+                StartTween(i, CellOffset(i), ScrambleTweenSec, (float)rng.NextDouble() * 0.15f);
+            joinPending = true;
+            state = State.Scrambling;
+            stateTime = 0f;
+        }
+
+        // World offset of a group whose tiles sit in their SwapGrid cells.
+        Vector2 CellOffset(int g) => new Vector2(grid.DispCol(g) * cellSize.x, grid.DispRow(g) * cellSize.y);
 
         void StartTween(int g, Vector2 to, float duration, float delay = 0f)
         {
@@ -553,7 +608,7 @@ namespace Snaploop.Puzzle
             shadowMin = dragMin;
             shadowMax = dragMax;
             Restack(g, toFront: true);
-            CollectCandidates(g);
+            if (!swapMode) CollectCandidates(g);
             Sfx.PlayPickup();
             return true;
         }
@@ -609,7 +664,7 @@ namespace Snaploop.Puzzle
             int g = dragGroup;
             Vector2 target = ClampOffset(ScreenToWorld(screen) + grabOffset, dragMin, dragMax);
             float radius = MagnetRadius * cellMin;
-            if (NearestCandidate(target, out Vector2 snap, out float d) && d < radius)
+            if (!swapMode && NearestCandidate(target, out Vector2 snap, out float d) && d < radius)
             {
                 float k = 1f - d / radius;
                 target = Vector2.Lerp(target, snap, MagnetStrength * k * k);
@@ -628,8 +683,176 @@ namespace Snaploop.Puzzle
             dragFinger = -1;
             if (g < 0) return;
             targetScale[g] = 1f;
+            if (swapMode) { DropOnGrid(g); return; }
             if (NearestCandidate(offset[g], out Vector2 snap, out float d) && d <= SnapRadius * cellMin)
                 SnapGroup(g, snap, SnapTweenSec, dragStartOffset);
+        }
+
+        // ---------------------------------------------------------------- grid swap
+
+        // Snaps a released group to the nearest cells that keep it on the board and pushes the covered tiles
+        // into the cells it left.
+        void DropOnGrid(int g)
+        {
+            int cols = level.Cols, rows = level.Rows;
+            int minC = cols, maxC = -1, minR = rows, maxR = -1;
+            for (int i = 0; i < home.Length; i++)
+            {
+                if (groups.GroupOf(i) != g) continue;
+                int c = i % cols, r = i / cols;
+                minC = Mathf.Min(minC, c); maxC = Mathf.Max(maxC, c);
+                minR = Mathf.Min(minR, r); maxR = Mathf.Max(maxR, r);
+            }
+            int dispC = Mathf.Clamp(Mathf.RoundToInt(offset[g].x / cellSize.x), -minC, cols - 1 - maxC);
+            int dispR = Mathf.Clamp(Mathf.RoundToInt(offset[g].y / cellSize.y), -minR, rows - 1 - maxR);
+
+            if (!MoveOnGrid(g, dispC - grid.DispCol(g), dispR - grid.DispRow(g), 0f, SlideTweenSec))
+                StartTween(g, CellOffset(g), SnapTweenSec);
+        }
+
+        // Applies a SwapGrid move and starts the visuals: the moved group tweens over moveSec (0 = snaps at once),
+        // the tiles it pushed aside over pushedSec. Returns false when nothing moved.
+        bool MoveOnGrid(int g, int dc, int dr, float moveSec, float pushedSec)
+        {
+            for (int i = 0; i < home.Length; i++) groupBefore[i] = groups.GroupOf(i);
+            var result = grid.TryMove(g, dc, dr);
+            if (result != SwapGrid.MoveResult.Moved && result != SwapGrid.MoveResult.Split) return false;
+            if (result == SwapGrid.MoveResult.Split) HandOverGroupState();
+
+            g = groups.GroupOf(g);
+            if (moveSec > 0f) StartTween(g, CellOffset(g), moveSec);
+            else
+            {
+                tweening[g] = false;
+                offset[g] = CellOffset(g);
+                dirty[g] = true;
+            }
+            for (int k = 0; k < grid.DisplacedCount; k++)
+            {
+                int h = grid.Displaced(k);
+                StartTween(h, CellOffset(h), pushedSec);
+            }
+            joinPending = true;
+            if (result == SwapGrid.MoveResult.Split)
+            {
+                RefreshEdges();
+                UpdateJoinedProgress();
+            }
+            return true;
+        }
+
+        // After a split, group ids change: every new group takes the visual state of the group its tiles were in.
+        void HandOverGroupState()
+        {
+            int n = home.Length;
+            Array.Copy(offset, offsetCopy, n);
+            Array.Copy(pivot, pivotCopy, n);
+            Array.Copy(tweenFrom, tweenFromCopy, n);
+            Array.Copy(tweenTo, tweenToCopy, n);
+            Array.Copy(scale, scaleCopy, n);
+            Array.Copy(targetScale, targetScaleCopy, n);
+            Array.Copy(tweenTime, tweenTimeCopy, n);
+            Array.Copy(tweenDuration, tweenDurationCopy, n);
+            Array.Copy(tweenDelay, tweenDelayCopy, n);
+            Array.Copy(tweening, tweeningCopy, n);
+            for (int g = 0; g < n; g++)
+            {
+                if (!groups.IsGroupId(g)) { tweening[g] = false; continue; }
+                int o = groupBefore[g];
+                offset[g] = offsetCopy[o];
+                pivot[g] = pivotCopy[o];
+                tweenFrom[g] = tweenFromCopy[o];
+                tweenTo[g] = tweenToCopy[o];
+                scale[g] = scaleCopy[o];
+                targetScale[g] = targetScaleCopy[o];
+                tweenTime[g] = tweenTimeCopy[o];
+                tweenDuration[g] = tweenDurationCopy[o];
+                tweenDelay[g] = tweenDelayCopy[o];
+                tweening[g] = tweeningCopy[o];
+                snapOnArrival[g] = false;
+                dirty[g] = true;
+            }
+            if (shadowGroup >= 0) shadowGroup = groups.GroupOf(shadowGroup);
+        }
+
+        // Joins every pair of picture neighbours that now sit side by side, wherever they are on the board.
+        void JoinNeighbours()
+        {
+            joinPending = false;
+            int n = home.Length;
+            for (int i = 0; i < n; i++) sizeBefore[i] = groups.SizeOf(groups.GroupOf(i));
+            bool any = false;
+            while (grid.FindJoin(out int a, out int b))
+            {
+                MergeGroups(groups.GroupOf(a), groups.GroupOf(b));
+                any = true;
+            }
+            if (!any) return;
+
+            for (int i = 0; i < n; i++) fresh[i] = groups.SizeOf(groups.GroupOf(i)) > sizeBefore[i];
+            RefreshEdges();
+            if (forcedWin) return;
+
+            Sfx.PlaySnap();
+            Haptics.Tick();
+            for (int i = 0; i < n; i++)
+                if (fresh[i]) flash[i] = 1f;
+            PopTiles(-1);
+
+            bool solved = UpdateJoinedProgress();
+            GameEvents.RaisePieceSnapped(placedCount, n);
+            if (solved) Complete();
+        }
+
+        // Progress in grid swap counts tiles that are joined to at least one neighbour, wherever they are.
+        bool UpdateJoinedProgress()
+        {
+            int n = home.Length;
+            bool solved = groups.SizeOf(groups.GroupOf(0)) == n;
+            int joined = 0;
+            for (int i = 0; i < n; i++)
+                if (groups.SizeOf(groups.GroupOf(i)) > 1) joined++;
+            // Two big groups can fill the board without being joined yet, so the last step waits for the solve.
+            int now = solved ? n : Mathf.Min(joined, n - 1);
+            if (now != placedCount)
+            {
+                placedCount = now;
+                ProgressChanged?.Invoke(placedCount, n);
+            }
+            return solved;
+        }
+
+        // One loose group swaps into its home cells: preferably a single tile whose move splits no other group,
+        // else the smallest such group, else the smallest move overall. Ties at random. Always succeeds unsolved.
+        bool ApplySwapHint()
+        {
+            int best = -1, bestScore = int.MaxValue, ties = 0;
+            for (int g = 0; g < home.Length; g++)
+            {
+                if (!groups.IsGroupId(g) || (grid.DispCol(g) == 0 && grid.DispRow(g) == 0)) continue;
+                int score = groups.SizeOf(g);
+                if (score > bestScore) continue;
+                if (grid.CheckMoveHome(g) == SwapGrid.MoveResult.Split) score += home.Length;
+                if (score < bestScore) { best = g; bestScore = score; ties = 1; }
+                else if (score == bestScore && UnityEngine.Random.Range(0, ++ties) == 0) best = g;
+            }
+            if (best < 0) return false;
+
+            Restack(best, toFront: true);
+            MoveOnGrid(best, -grid.DispCol(best), -grid.DispRow(best), HintTweenSec, HintTweenSec * 0.6f);
+            hintsUsed++;
+            GameEvents.RaiseHintUsed(level, level.Index);
+            return true;
+        }
+
+        void UpdateFlash(float dt)
+        {
+            for (int i = 0; i < flash.Length; i++)
+            {
+                if (flash[i] <= 0f) continue;
+                flash[i] = Mathf.Max(0f, flash[i] - dt / FlashSec);
+                tiles.SetFlash(i, flash[i] * flash[i]);
+            }
         }
 
         // ---------------------------------------------------------------- snapping, joining, locking
@@ -808,11 +1031,15 @@ namespace Snaploop.Puzzle
             dragShadow.color = new Color(0.02f, 0.01f, 0.08f, ShadowAlpha * lift);
         }
 
-        /// <summary>Auto-places one loose tile (the smallest loose group). Returns false if nothing to place.</summary>
+        /// <summary>
+        /// Moves one loose tile home (the smallest loose group; in grid swap, by swapping it into its cell).
+        /// Returns false if nothing can be placed.
+        /// </summary>
         public bool ApplyHint()
         {
             if (state != State.Playing) return false;
             if (dragGroup >= 0) Release();
+            if (swapMode) return ApplySwapHint();
             int best = -1, bestSize = int.MaxValue, ties = 0;
             for (int g = 0; g < offset.Length; g++)
             {
@@ -840,6 +1067,18 @@ namespace Snaploop.Puzzle
             if (state != State.Playing) return;
             if (dragGroup >= 0) Release();
             forcedWin = true;
+            if (swapMode)
+            {
+                grid.PlaceAllHome();
+                int j = 0;
+                for (int g = 0; g < offset.Length; g++)
+                    if (groups.IsGroupId(g)) StartTween(g, Vector2.zero, 0.35f, j++ * 0.015f);
+                joinPending = true;
+                placedCount = home.Length;
+                ProgressChanged?.Invoke(placedCount, home.Length);
+                Complete();
+                return;
+            }
             int k = 0;
             for (int g = 0; g < offset.Length; g++)
             {

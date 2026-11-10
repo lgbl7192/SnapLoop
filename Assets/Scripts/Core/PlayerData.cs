@@ -8,6 +8,7 @@ namespace Snaploop.Core
         const string SoundKey = "settings.sound";
         const string HapticsKey = "settings.haptics";
         const string OnboardingKey = "onboarding.seen";
+        const string DevFreeDragKey = "dev.freeDrag";
 
         public static bool SoundOn
         {
@@ -25,6 +26,13 @@ namespace Snaploop.Core
         {
             get => PlayerPrefs.GetInt(OnboardingKey, 0) == 1;
             set { PlayerPrefs.SetInt(OnboardingKey, value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
+        /// <summary>Dev menu: puzzles use the old free-drag movement instead of grid swapping (from the next level).</summary>
+        public static bool DevFreeDrag
+        {
+            get => PlayerPrefs.GetInt(DevFreeDragKey, 0) == 1;
+            set { PlayerPrefs.SetInt(DevFreeDragKey, value ? 1 : 0); PlayerPrefs.Save(); }
         }
     }
 

@@ -293,7 +293,7 @@ namespace Snaploop.UI
             hand.anchorMin = hand.anchorMax = new Vector2(0f, 1f);
             hand.pivot = new Vector2(0.42f, 0.86f);
 
-            var body = UIFactory.Text("Body", coach, "Every tile keeps playing.\nDrag one near its spot and it snaps in.",
+            var body = UIFactory.Text("Body", coach, "Every tile keeps playing.\nDrag one onto its spot to swap it in.",
                 TextRole.Body, T.body, T.textDim, TextAnchor.UpperCenter);
             var brt = body.rectTransform;
             brt.anchorMin = Vector2.zero; brt.anchorMax = new Vector2(1f, 0f); brt.pivot = new Vector2(0.5f, 0f);
