@@ -45,9 +45,14 @@ namespace Snaploop.Puzzle
         const byte GhostAmount = 30; // 0-255 video strength in empty slots
 
         static readonly Color32 TileColor = new Color32(255, 255, 255, 255);
-        static readonly Color32 SlotColor = new Color32(62, 66, 86, GhostAmount);
+        static readonly Color32 SlotColor = new Color32(78, 66, 168, GhostAmount);
+        static readonly Color32 BaseColor = new Color32(18, 15, 51, 255);
+        const float SnapPopScale = 1.06f;
+        const float ShadowAlpha = 0.5f;
 
         public event Action<int, int> ProgressChanged;
+        /// <summary>Tiles settled into place or joined a group (screen position of their centre). Visual only.</summary>
+        public event Action<Vector2> PieceLanded;
         public event Action<PuzzleResult> Completed;
         public event Action<PuzzleResult> RevealFinished;
         public event Action<bool> LevelReady;
@@ -71,6 +76,7 @@ namespace Snaploop.Puzzle
         Vector2[] home;
         int[] drawOrder;   // tile indices, bottom to top
         bool[] placed, fresh;
+        float[] pop;
 
         // Per group, indexed by group id (only meaningful while TileGroups.IsGroupId(id)).
         Vector2[] offset;
@@ -107,10 +113,15 @@ namespace Snaploop.Puzzle
         Vector2 dragMin, dragMax; // dragged group's bounds at offset zero
         int loadToken;
 
+        SpriteRenderer dragShadow;
+        int shadowGroup = -1;
+        Vector2 shadowMin, shadowMax;
+
         static readonly int FadeId = Shader.PropertyToID("_Fade");
         static readonly int RadiusId = Shader.PropertyToID("_Radius");
         static readonly int GapId = Shader.PropertyToID("_Gap");
         static readonly int OutlineId = Shader.PropertyToID("_Outline");
+        static readonly int BaseId = Shader.PropertyToID("_Base");
 
         public void Init(Camera camera, VideoFeed videoFeed)
         {
@@ -123,13 +134,24 @@ namespace Snaploop.Puzzle
                 shader = Shader.Find("Unlit/Texture");
             }
             material = new Material(shader) { name = "SnaploopTiles" };
+            material.SetColor(BaseId, BaseColor);
             tiles = new TileBatch("Tiles");
             slots = new TileBatch("Slots");
 
-            slotsGo = MakeRendererObject("Slots", slots.Mesh, -1);
+            slotsGo = MakeRendererObject("Slots", slots.Mesh, -2);
             tilesGo = MakeRendererObject("Tiles", tiles.Mesh, 0);
             revealGo = MakeRendererObject("Reveal", BuildQuad(), 1);
             revealGo.SetActive(false);
+
+            // Soft shadow under a lifted group, between the slots and the tiles: it shows on the board and
+            // stays under every tile.
+            var shadowGo = new GameObject("DragShadow");
+            shadowGo.transform.SetParent(transform, false);
+            dragShadow = shadowGo.AddComponent<SpriteRenderer>();
+            dragShadow.sprite = Snaploop.UI.UISprites.Shadow;
+            dragShadow.drawMode = SpriteDrawMode.Sliced;
+            dragShadow.sortingOrder = -1;
+            shadowGo.SetActive(false);
             SetVisible(false);
         }
 
@@ -153,6 +175,7 @@ namespace Snaploop.Puzzle
             tilesGo.SetActive(v);
             slotsGo.SetActive(v);
             if (!v) revealGo.SetActive(false);
+            if (!v) HideShadow();
         }
 
         /// <summary>Screen-pixel rectangle the puzzle may use (between the HUD bars).</summary>
@@ -229,6 +252,7 @@ namespace Snaploop.Puzzle
             drawOrder = new int[n];
             placed = new bool[n];
             fresh = new bool[n];
+            pop = new float[n];
             vacated = new Vector2[n];
             offset = new Vector2[n];
             pivot = new Vector2[n];
@@ -251,6 +275,7 @@ namespace Snaploop.Puzzle
                 drawOrder[i] = i;
                 pivot[i] = home[i];
                 scale[i] = targetScale[i] = 1f;
+                pop[i] = 1f;
             }
 
             lockedGroup = -1;
@@ -315,6 +340,8 @@ namespace Snaploop.Puzzle
             }
             if (state == State.Settling && !anyTween) BeginReveal();
 
+            UpdatePops(dt);
+            UpdateDragShadow();
             WriteDirtyTiles();
             tiles.Flush();
         }
@@ -364,7 +391,7 @@ namespace Snaploop.Puzzle
                 if (!dirty[g]) continue;
                 float s = scale[g];
                 Vector2 p = pivot[g] + offset[g];
-                tiles.SetTile(i, p + (home[i] + offset[g] - p) * s, s);
+                tiles.SetTile(i, p + (home[i] + offset[g] - p) * s, s * pop[i]);
             }
             for (int g = 0; g < dirty.Length; g++) dirty[g] = false;
         }
@@ -519,6 +546,12 @@ namespace Snaploop.Puzzle
             GroupBounds(g, out dragMin, out dragMax);
             pivot[g] = (dragMin + dragMax) * 0.5f;
             targetScale[g] = LiftScale;
+            // A bounding-box shadow only matches rectangular groups; others lift without one.
+            Vector2 cells = (dragMax - dragMin) / cellSize;
+            bool rectangular = groups.SizeOf(g) == Mathf.RoundToInt(cells.x) * Mathf.RoundToInt(cells.y);
+            shadowGroup = rectangular ? g : -1;
+            shadowMin = dragMin;
+            shadowMax = dragMax;
             Restack(g, toFront: true);
             CollectCandidates(g);
             Sfx.PlayPickup();
@@ -668,6 +701,7 @@ namespace Snaploop.Puzzle
 
             Sfx.PlaySnap();
             Haptics.Tick();
+            PopTiles(newlyPlaced > 0 ? -1 : survivor);
             if (newlyPlaced > 0)
             {
                 placedCount = groups.SizeOf(lockedGroup);
@@ -717,6 +751,61 @@ namespace Snaploop.Puzzle
                 Restack(hg, toFront: true);
                 moved++;
             }
+        }
+
+        // ---------------------------------------------------------------- feedback (visual only)
+
+        // group < 0: the tiles placed by this snap (fresh[]); otherwise every tile of that group.
+        void PopTiles(int group)
+        {
+            Vector2 sum = Vector2.zero;
+            int count = 0;
+            for (int i = 0; i < home.Length; i++)
+            {
+                int g = groups.GroupOf(i);
+                if (group < 0 ? !fresh[i] : g != group) continue;
+                pop[i] = SnapPopScale;
+                dirty[g] = true;
+                sum += home[i] + offset[g];
+                count++;
+            }
+            if (count > 0 && PieceLanded != null)
+                PieceLanded(cam.WorldToScreenPoint(new Vector3(sum.x / count, sum.y / count, 0f)));
+        }
+
+        void UpdatePops(float dt)
+        {
+            for (int i = 0; i < pop.Length; i++)
+            {
+                if (pop[i] == 1f) continue;
+                pop[i] = Mathf.MoveTowards(pop[i], 1f, dt * 0.5f);
+                dirty[groups.GroupOf(i)] = true;
+            }
+        }
+
+        void HideShadow()
+        {
+            shadowGroup = -1;
+            if (dragShadow != null && dragShadow.gameObject.activeSelf) dragShadow.gameObject.SetActive(false);
+        }
+
+        void UpdateDragShadow()
+        {
+            int g = shadowGroup;
+            if (g < 0 || !groups.IsGroupId(g) || g == lockedGroup) { HideShadow(); return; }
+            float lift = Mathf.Clamp01((scale[g] - 1f) / (LiftScale - 1f));
+            if (lift <= 0f && dragGroup != g) { HideShadow(); return; }
+            if (!dragShadow.gameObject.activeSelf) dragShadow.gameObject.SetActive(true);
+
+            Vector2 c = (shadowMin + shadowMax) * 0.5f + offset[g];
+            Vector2 size = (shadowMax - shadowMin) * scale[g];
+            dragShadow.transform.localPosition = new Vector3(c.x + cellMin * 0.05f * lift, c.y - cellMin * 0.09f * lift, 0f);
+            // Scale the sliced sprite so its baked blur band matches the wanted blur at any cell size.
+            float blur = cellMin * 0.22f;
+            float k = blur / (Snaploop.UI.UISprites.ShadowBlur / dragShadow.sprite.pixelsPerUnit);
+            dragShadow.transform.localScale = new Vector3(k, k, 1f);
+            dragShadow.size = (size + new Vector2(2f * blur, 2f * blur)) / k;
+            dragShadow.color = new Color(0.02f, 0.01f, 0.08f, ShadowAlpha * lift);
         }
 
         /// <summary>Auto-places one loose tile (the smallest loose group). Returns false if nothing to place.</summary>
