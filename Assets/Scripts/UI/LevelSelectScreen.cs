@@ -9,7 +9,7 @@ using UnityEngine.UI;
 namespace Snaploop.UI
 {
     /// <summary>
-    /// The hub: token wallet and stars up top, the brand, an "Up next" card, the selected theme pack's puzzles as
+    /// The hub: token wallet and stars up top, the brand, the album card, an "Up next" card, the selected theme pack's puzzles as
     /// thumbnail tiles (with a Packs button to switch), and one big Play button in the thumb zone that names the next puzzle.
     /// </summary>
     public sealed class LevelSelectScreen : UIScreen
@@ -64,8 +64,12 @@ namespace Snaploop.UI
 
         public event Action DevMenuRequested;
 
-        /// <summary>Empty container between the brand and "Up next", kept for future retention features (daily rewards, streaks).</summary>
+        /// <summary>The album card was tapped.</summary>
+        public event Action OpenAlbum;
+
+        /// <summary>Row between the brand and "Up next" for retention features; holds the album card.</summary>
         public RectTransform RetentionSlot { get; }
+        readonly AlbumCard albumCard;
 
         const int Columns = 3;
         float Pad => T.U(T.screenPad);
@@ -150,7 +154,9 @@ namespace Snaploop.UI
             UIFactory.Place(tagline.rectTransform, new Vector2(0.5f, 1f), new Vector2(T.U(360f), T.U(20f)), new Vector2(0f, -T.U(126f)));
 
             RetentionSlot = UIFactory.Rect("RetentionSlot", content);
-            RetentionSlot.gameObject.AddComponent<LayoutElement>().preferredHeight = 0f;
+            RetentionSlot.gameObject.AddComponent<LayoutElement>().preferredHeight = T.U(AlbumCard.HeightDp);
+            albumCard = new AlbumCard("AlbumCard", RetentionSlot, host, UILayout.ReferenceWidth - 2f * Pad, () => OpenAlbum?.Invoke());
+            UIFactory.Stretch(albumCard.Root, Pad, Pad, 0, 0);
 
             // Up next.
             var upHolder = UIFactory.Rect("UpNextRow", content);
@@ -456,6 +462,7 @@ namespace Snaploop.UI
             UITween.Get(Root).Fade(0f, 1f).Move(new Vector2(0f, -T.U(36f)), Vector2.zero).Play(T.medium * 0.9f, EaseType.OutCubic);
             UITween.Get(header).Fade(0f, 1f).Scale(0.92f, 1f).Play(T.medium, EaseType.OutBack, 0f);
             UITween.Get(mark.Root).Scale(0.6f, 1f).Play(T.medium, EaseType.OutBack, 0.12f);
+            UITween.Get(albumCard.Root).Fade(0f, 1f).Scale(0.9f, 1f).Play(T.medium, EaseType.OutBack, 0.15f);
             UITween.Get(upNext).Fade(0f, 1f).Scale(0.9f, 1f).Play(T.medium, EaseType.OutBack, 0.18f);
             UITween.Get(playButton).Fade(0f, 1f).Scale(0.85f, 1f).Play(T.medium, EaseType.OutBack, 0.24f);
             host.StartCoroutine(SnapMark());
@@ -543,6 +550,7 @@ namespace Snaploop.UI
             }
             UIFactory.ChipText(starChip).text = totalStars + " / " + maxStars;
             tokenPill.Refresh(true);
+            albumCard.Refresh();
 
             int n = pack?.Levels.Count ?? 0;
             sectionTitle.text = pack == null ? "All puzzles" : pack.DisplayTitle;

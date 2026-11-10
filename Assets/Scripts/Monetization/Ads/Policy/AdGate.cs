@@ -21,7 +21,7 @@ namespace Snaploop.Monetization
         NotOnBannerScreen,
         BannerGraceDays,
         BannerGraceSessions,
-        NothingToDouble,
+        NothingToClaim,
         AlreadyClaimed,
     }
 
@@ -87,16 +87,16 @@ namespace Snaploop.Monetization
         }
 
         /// <summary>
-        /// The win card's "Double tokens" offer: one rewarded slot per win, only when the win paid tokens.
-        /// It is an ordinary rewarded ad underneath, so the session and daily caps are shared with hints,
-        /// and the interstitial cooldown after a rewarded ad (<see cref="AdRules.interAfterRewardedSeconds"/>)
-        /// applies to the Next tap that follows it.
+        /// The win card's "Claim x3" offer: one rewarded slot per win, only when the win paid tokens and they
+        /// haven't been claimed yet. It is an ordinary rewarded ad underneath, so the session and daily caps are
+        /// shared with hints, and the interstitial cooldown after a rewarded ad
+        /// (<see cref="AdRules.interAfterRewardedSeconds"/>) applies to the Next tap that follows it.
         /// </summary>
-        public static AdBlock DoubleTokens(in AdGateContext c, int tokensEarned, bool claimedThisWin)
+        public static AdBlock ClaimTriple(in AdGateContext c, int tokensEarned, bool claimedThisWin)
         {
             var r = c.Rules;
-            if (!r.rewardedEnabled || !r.doubleTokensEnabled) return AdBlock.KillSwitch;
-            if (tokensEarned <= 0) return AdBlock.NothingToDouble;
+            if (!r.rewardedEnabled || !r.claimTripleEnabled) return AdBlock.KillSwitch;
+            if (tokensEarned <= 0) return AdBlock.NothingToClaim;
             if (claimedThisWin) return AdBlock.AlreadyClaimed;
             return Rewarded(c);
         }

@@ -65,6 +65,7 @@ namespace Snaploop.Dev
             yield return Step("dev-menu", HudDevMenu(), 15f);
             yield return Step("win", Win(), 60f);
             yield return Step("level-select", LevelSelect(), 30f);
+            yield return Step("album", AlbumPage(), 20f);
             yield return Step("level-select-banner", Banner(), 20f);
             yield return Step("dev-menu", HubDevMenu(), 15f);
             yield return Step("store", Store(), 25f);
@@ -169,8 +170,15 @@ namespace Snaploop.Dev
             }
             yield return WaitFor(() => FindActive("Win", "SafeArea") != null, 20f);
             if (!waitOk) { Skip("win"); yield break; }
-            yield return Wait(1.6f);
+            yield return Wait(WinScreen.HoldSec + 0.9f);
             yield return Shot("win");
+            if (Click("ClaimPlain", "Win"))
+            {
+                yield return Wait(0.45f);
+                yield return Shot("win-claim-flight");
+                yield return Wait(1.2f);
+                yield return Shot("win-claimed");
+            }
             Click("Next", "Win");
             yield return WaitFor(() => FindActive("TestAd") != null, 6f);
             if (!waitOk) { Skip("ad-interstitial"); yield break; }
@@ -195,6 +203,20 @@ namespace Snaploop.Dev
             if (!waitOk) { Skip("level-select"); yield break; }
             yield return Wait(2.5f);
             yield return Shot("level-select");
+        }
+
+        // The hub's album card opens the album; a few more first clears make the page readable.
+        IEnumerator AlbumPage()
+        {
+            var levels = LevelCatalog.Levels;
+            for (int i = 0; i < levels.Count && Album.Filled < 7; i++) Album.RecordClear(levels[i].id);
+            if (!Click("AlbumCard", "LevelSelect")) { Skip("album"); yield break; }
+            yield return WaitFor(() => FindActive("Album", "Canvas") != null, 6f);
+            if (!waitOk) { Skip("album"); yield break; }
+            yield return Wait(1.2f);
+            yield return Shot("album");
+            Click("Close", "Album");
+            yield return Wait(0.4f);
         }
 
         IEnumerator Banner()

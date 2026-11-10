@@ -7,7 +7,7 @@ namespace Snaploop.UI
 {
     /// <summary>
     /// In-puzzle HUD, kept minimal so the video is the hero: back, level and title, a progress ring for pieces
-    /// placed and settings on top; the hint (rewarded style when it plays an ad) at the bottom.
+    /// placed and settings on top; the hint (with its token price, or rewarded style when it plays an ad) at the bottom.
     /// </summary>
     public sealed class HudScreen : UIScreen
     {
@@ -17,6 +17,8 @@ namespace Snaploop.UI
         readonly Text caps, title, loading, toast;
         readonly UIFactory.RingGauge ring;
         readonly Button hint;
+        readonly RectTransform hintPrice;
+        readonly Text hintPriceText;
         readonly RectTransform loadingRoot;
         readonly CanvasGroup toastGroup, barsGroup;
         float toastTime;
@@ -59,6 +61,7 @@ namespace Snaploop.UI
             bottom = UIFactory.Band(UIFactory.Rect("BottomBar", Root), 0f, UILayout.BottomBar);
             hint = UIFactory.JuicyButton("Hint", bottom, ButtonTone.Blue, ButtonSize.Large, "Hint", () => onHint(), UISprites.Sparkle);
             UIFactory.Place((RectTransform)hint.transform, new Vector2(0.5f, 0.5f), new Vector2(T.U(220f), UIFactory.ButtonHeight(ButtonSize.Large)));
+            hintPrice = BuildPriceTag(hint.GetComponent<JuicyButtonParts>().content, out hintPriceText);
 
             if (onDev != null)
             {
@@ -107,11 +110,32 @@ namespace Snaploop.UI
 
         public void SetHintInteractable(bool on) => hint.interactable = on;
 
-        /// <summary>A hint that is not on offer is hidden, not greyed out.</summary>
-        public void SetHintOffer(string label, bool offered, bool rewardedAd)
+        /// <summary>Dark pill with the token glyph and a price, at the end of a button's content row (like the AD badge).</summary>
+        static RectTransform BuildPriceTag(Transform content, out Text price)
+        {
+            var pill = UIFactory.RoundRect("Price", content, new Color(0f, 0f, 0f, 0.25f), 11f);
+            var le = pill.gameObject.AddComponent<LayoutElement>();
+            le.preferredWidth = T.U(58f);
+            le.preferredHeight = T.U(24f);
+            var icon = UIFactory.TokenIcon("Token", pill.transform, T.U(22f));
+            UIFactory.Place(icon, new Vector2(0f, 0.5f), icon.sizeDelta, new Vector2(T.U(2f), 0f));
+            price = UIFactory.Text("Text", pill.transform, "", TextRole.Number, 15f, Color.white, TextAnchor.MiddleRight);
+            UIFactory.Stretch(price.rectTransform, 0, T.U(8f), 0, 0);
+            pill.gameObject.SetActive(false);
+            return pill.rectTransform;
+        }
+
+        /// <summary>
+        /// A hint that is not on offer is hidden, not greyed out. <paramref name="tokenCost"/> &gt; 0 shows the price tag;
+        /// a hint paid with an ad gets the rewarded look instead.
+        /// </summary>
+        public void SetHintOffer(string label, bool offered, bool rewardedAd, int tokenCost)
         {
             UIFactory.SetButtonText(hint, label);
             UIFactory.SetRewardedLook(hint, rewardedAd);
+            bool priced = tokenCost > 0 && !rewardedAd;
+            hintPrice.gameObject.SetActive(priced);
+            if (priced) hintPriceText.text = tokenCost.ToString();
             if (offered && !hint.gameObject.activeSelf)
             {
                 hint.gameObject.SetActive(true);

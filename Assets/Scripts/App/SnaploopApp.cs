@@ -34,12 +34,14 @@ namespace Snaploop.App
         DevMenuScreen devMenu;
         PackScreen packs;
         LevelPreviewScreen preview;
+        AlbumScreen album;
         ToastView toast;
         Image flash;
         Text fpsText;
 
         int currentIndex = -1;
         PuzzleResult lastResult;
+        AlbumFill lastAlbumFill;
         bool hintPending;
         bool transitioning;
         float flashT = -1f;
@@ -79,6 +81,7 @@ namespace Snaploop.App
             board.PieceLanded += OnPieceLanded;
             GameEvents.RevealStarted += OnRevealStarted;
             GameServices.HintOfferChanged += RefreshHintOffer;
+            Tokens.Changed += RefreshHintOffer;
 
             BuildUI();
         }
@@ -87,6 +90,7 @@ namespace Snaploop.App
         {
             GameEvents.RevealStarted -= OnRevealStarted;
             GameServices.HintOfferChanged -= RefreshHintOffer;
+            Tokens.Changed -= RefreshHintOffer;
             if (Instance == this) Instance = null;
         }
 
@@ -166,10 +170,11 @@ namespace Snaploop.App
             levelSelect = new LevelSelectScreen(safeRoot, this, OnLevelCardTapped, () => OpenModal(settings), ShowPacks,
                 level => { preview.ShowFor(level); OpenModal(preview); });
             levelSelect.DevMenuRequested += () => OpenModal(devMenu);
+            levelSelect.OpenAlbum += () => OpenModal(album);
             // Debug builds also get a Dev button in the HUD, where "Win now" applies to the running puzzle.
             hud = new HudScreen(safeRoot, OnBackToLevels, () => OpenModal(settings), OnHintClicked,
                 Debug.isDebugBuild ? () => OpenModal(devMenu) : (Action)null);
-            win = new WinScreen(safeRoot, OnNextClicked, OnBackToLevels, r => GameServices.Share?.Share(r));
+            win = new WinScreen(safeRoot, this, OnNextClicked, OnBackToLevels, r => GameServices.Share?.Share(r));
             packs = new PackScreen(safeRoot, this, ShowLevelSelect, OpenPack);
 
             flash = UIFactory.Image("Flash", canvasRoot, new Color(1f, 1f, 1f, 0f));
@@ -189,6 +194,8 @@ namespace Snaploop.App
             devMenu.Closed += OnModalClosed;
             preview = new LevelPreviewScreen(canvasRoot, this);
             preview.Closed += OnModalClosed;
+            album = new AlbumScreen(canvasRoot, this);
+            album.Closed += OnModalClosed;
 
             toast = new ToastView(canvasRoot);
             PackActions.Toast = msg => toast.Show(msg);
@@ -204,6 +211,11 @@ namespace Snaploop.App
             GameServices.AddDevMenuEntry(() => "Reset tokens to 0", Tokens.DevReset);
             GameServices.AddDevMenuEntry(() =>
             {
+                int filled = Album.Filled, page = AlbumRules.CurrentPage(filled);
+                return "Album: page " + (page + 1) + ", " + AlbumRules.FilledOnPage(filled, page) + "/" + AlbumRules.SlotsPerPage + " (tap: fill one slot)";
+            }, DevFillAlbumSlot);
+            GameServices.AddDevMenuEntry(() =>
+            {
                 int total = PackCatalog.Packs.Count, open = PackAccess.UnlockedCount();
                 return "Packs: " + open + "/" + total + " unlocked (tap: " + (open < total ? "unlock all" : "lock all") + ")";
             }, () => PackAccess.DevSetAllUnlocked(PackAccess.UnlockedCount() < PackCatalog.Packs.Count));
@@ -216,6 +228,17 @@ namespace Snaploop.App
                 PackAccess.DevMonthOverride = (PackAccess.DevMonthOverride + 1) % 13;
                 GameServices.NotifyPacksChanged();
             });
+        }
+
+        /// <summary>Dev: puts the next level that isn't in the album yet into it, as a first clear would (pays a finished page).</summary>
+        static void DevFillAlbumSlot()
+        {
+            foreach (var l in LevelCatalog.Levels)
+            {
+                if (Album.Contains(l.id)) continue;
+                Album.RecordClear(l.id);
+                return;
+            }
         }
 
         // ---------------------------------------------------------------- flow
@@ -304,7 +327,7 @@ namespace Snaploop.App
                 if (token != currentIndex || !board.IsPlaying) return;
                 board.InputEnabled = !AnyModalOpen();
                 hud.SetHintInteractable(true);
-                if (granted) board.ApplyHint();
+                if (granted && !board.ApplyHint()) GameServices.Hints.Refund();
             });
         }
 
@@ -312,12 +335,13 @@ namespace Snaploop.App
         {
             if (hud == null) return;
             var gate = GameServices.Hints;
-            hud.SetHintOffer(gate.ButtonLabel, gate.IsOffered, gate.IsRewardedAd);
+            hud.SetHintOffer(gate.ButtonLabel, gate.IsOffered, gate.IsRewardedAd, gate.TokenCost);
         }
 
         void OnCompleted(PuzzleResult result)
         {
             lastResult = result;
+            lastAlbumFill = result.IsFirstClear ? Album.RecordClear(result.Level.id) : default;
             hud.SetHintInteractable(false);
         }
 
@@ -331,7 +355,7 @@ namespace Snaploop.App
         void OnRevealFinished(PuzzleResult result)
         {
             hud.Hide();
-            win.ShowResult(result, PackAccess.NextInPack(result.Level));
+            win.ShowResult(result, PackAccess.NextInPack(result.Level), lastAlbumFill);
         }
 
         void OnNextClicked()
@@ -380,7 +404,8 @@ namespace Snaploop.App
             (settings != null && settings.IsVisible) ||
             (onboarding != null && onboarding.IsVisible) ||
             (devMenu != null && devMenu.IsVisible) ||
-            (preview != null && preview.IsVisible);
+            (preview != null && preview.IsVisible) ||
+            (album != null && album.IsVisible);
 
         // ---------------------------------------------------------------- per-frame
 
@@ -425,7 +450,8 @@ namespace Snaploop.App
 
         void OnAndroidBack()
         {
-            if (preview.IsVisible) preview.Close();
+            if (album.IsVisible) album.Close();
+            else if (preview.IsVisible) preview.Close();
             else if (devMenu.IsVisible) devMenu.Close();
             else if (settings.IsVisible) settings.Close();
             else if (onboarding.IsVisible) onboarding.Close();

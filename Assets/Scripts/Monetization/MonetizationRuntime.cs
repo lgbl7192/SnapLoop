@@ -55,9 +55,9 @@ namespace Snaploop.Monetization
             Debug.Log("[Monetization] Ads: " + network.Name + ", store: " + Purchases.Backend.Name + ", Remove Ads owned: " + Entitlements.RemoveAds +
                       ", pack products owned: " + Entitlements.OwnedProductCount);
 
-            GameServices.Hints = new RewardedHintGate(Ads, Config.hintPlacement);
+            GameServices.Hints = new TokenHintGate(new RewardedHintGate(Ads, Config.hintPlacement));
             GameServices.BetweenPuzzles = new InterstitialGate(Ads, Config.nextLevelPlacement);
-            GameServices.DoubleTokens = new DoubleTokensOffer(Ads, Config.doubleTokensPlacement);
+            GameServices.ClaimTriple = new ClaimTripleOffer(Ads, Config.claimTriplePlacement);
             GameServices.PackStore = Packs;
             Ads.Changed += GameServices.NotifyHintOfferChanged;
             Ads.Changed += GameServices.NotifyRewardedOffersChanged;

@@ -19,9 +19,9 @@ Android-first video puzzle built in Unity. Every tile is a live window onto one 
 | `Assets/Scripts/UI/` | Code-built uGUI screens (level select, theme packs, locked-level preview, HUD, win card, settings, onboarding, dev menu). Shared look in `UI/Theme/`; see [UI look and screenshots](#ui-look-and-screenshots). |
 | `Assets/Resources/UI/UITheme.asset` | Design tokens: palette, gradients, fonts, type scale, spacing, radii, motion. |
 | `Assets/Art/` | Bundled OFL fonts (with their licences) and the app icon placeholder. |
-| `Assets/Scripts/Monetization/` | Ads (rewarded hints and Double tokens, interstitials on Next, level-select banner, the gating rules, test and LevelPlay adapters), consent and remote-config seams, and the Remove Ads and theme pack purchases. See [Monetization](#monetization-ads-and-remove-ads). |
+| `Assets/Scripts/Monetization/` | Ads (rewarded hints and Claim x3, interstitials on Next, level-select banner, the gating rules, test and LevelPlay adapters), consent and remote-config seams, and the Remove Ads and theme pack purchases. See [Monetization](#monetization-ads-and-remove-ads). |
 | `Assets/Resources/Monetization/MonetizationConfig.asset` | Every ad and IAP id and every ad rule number. |
-| `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules and the token rules (no Unity needed). |
+| `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules and the token, hint and album rules (no Unity needed). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
 | `Assets/Resources/Shaders/SnaploopVideoTile.shader` | The puzzle's tile shader: rounded tiles, gaps and outlines drawn per pixel from edge flags, so a joined group shows one outer outline. `SnaploopVideoPiece` above is the older jigsaw-piece shader. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, `levels.json` and `packs.json`. |
@@ -73,14 +73,16 @@ Puzzles come in theme packs. The 30 original levels are the free **Starter** pac
 - The **Theme packs** screen lists every pack. Packs featured this month come first, with a **Seasonal** badge, and then the rest in `packs.json` order. Each card shows the cover thumbnail, the clip count, and either progress with **Play** (unlocked) or **Unlock for 150** and **Buy $1.99** (locked). With too few tokens, the token button stays visible and shows "87 / 150" with a fill; tapping it says how many tokens are missing.
 - Tapping a puzzle in a locked pack opens a preview that loops its clip silently, with the pack's unlock and buy buttons. It never starts the puzzle.
 - A pack with no clips yet shows a drawn cover and **Coming soon**, with no unlock or buy buttons, so tokens can't be spent on an empty pack.
-- The token balance shows on level select and the pack screen only, never during play.
+- The token balance shows on level select, the pack screen and the win card. During play only the hint's price shows.
 - Puzzles inside a pack unlock in order, as before.
 
 **Tokens:**
 
 - First clear: 5, 8 or 10 tokens for 1, 2 or 3 stars. A replay that improves a level's stars pays the difference (2 stars to 3 pays 2). Other replays pay nothing. The rules are in `TokenRules` (`Assets/Scripts/Core/EconomyRules.cs`) and are covered by the unit tests.
-- When a win paid tokens, the win card can offer a green **Double to N** button with an **AD** badge. It is a rewarded ad that pays the same amount again. See the rewarded rules under [Monetization](#the-rules).
-- Tokens are local only (PlayerPrefs). The dev menu's "Reset progress" clears them, along with token unlocks.
+- Tokens are credited when the puzzle completes. The win card holds its buttons for 1.5 s so the reveal can play, then shows **Claim** (+N) and, when a rewarded ad is loaded, **Claim x3** with an **AD** badge. Claiming flies the tokens into the counter at the top left. Claim x3 is a rewarded ad that adds twice the clear's tokens on top (an 8-token clear pays 24). Leaving the card without claiming loses nothing. See the rewarded rules under [Monetization](#the-rules).
+- **Hints cost 15 tokens** (`HintRules.TokenCost`), a little under two first clears. The hint button shows the price. When the player has fewer than 15, the hint falls back to a rewarded ad; with neither, the hint is hidden. Tokens are spent before the ad, and a hint the board can't place is refunded.
+- **Album**: each first clear fills the next slot of a 12-slot album page with that level's clip thumbnail. A full page pays a 30-token bonus (`AlbumRules`), shown on the win card. Replays don't fill slots. Level select shows the current page and its progress on the album card; tapping it opens the album, which pages back through finished pages.
+- Tokens and the album are local only (PlayerPrefs). The dev menu's "Reset progress" clears them, along with token unlocks.
 - Daily rewards, streaks, buying tokens, bundles and spins are not in yet.
 
 **Purchases:** one non-consumable per pack, with product id `com.snaploop.game.pack.<id>` and a placeholder price of $1.99. They use the same Unity IAP setup, entitlement file and **Restore Purchases** row as Remove Ads; see [Theme pack purchases](#theme-pack-purchases). Remove Ads doesn't unlock packs, and there is no bundle.
@@ -121,7 +123,7 @@ Project-side settings are committed in `ProjectSettings/`: Snaploop name, portra
 - First launch goes straight into level 1 with a one-screen onboarding ("Assemble the moving picture").
 - Levels unlock in order within each pack (see [Theme packs and tokens](#theme-packs-and-tokens)). Stars: 3, minus 1 if any hint was used, minus 1 if slower than par (6 s per piece). The minimum is 1.
 - Android back button: closes a dialog, otherwise returns to level select, otherwise sends the app to the background.
-- **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter. In the Editor and development builds it also has the monetization toggles listed under [Monetization](#monetization-ads-and-remove-ads), plus pack rows: **Tokens: N (tap: +100)**, **Reset tokens to 0**, **Packs: X/Y unlocked (tap: unlock all / lock all)** (token unlocks only; purchases are untouched) and **Season month: device / N (tap to change)** to try seasonal badges. These pack rows are not registered in release builds.
+- **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter. In the Editor and development builds it also has the monetization toggles listed under [Monetization](#monetization-ads-and-remove-ads), plus pack rows: **Tokens: N (tap: +100)**, **Reset tokens to 0**, **Packs: X/Y unlocked (tap: unlock all / lock all)** (token unlocks only; purchases are untouched) and **Season month: device / N (tap to change)** to try seasonal badges, and **Album: page N, x/12 (tap: fill one slot)**. These pack rows are not registered in release builds.
 
 ## UI look and screenshots
 
@@ -133,14 +135,14 @@ The UI is a dark "midnight arcade" style with Snaploop's own golden-hour accent 
 - **Motion** (`UIJuice`, `UIFx`): tweens, press springs and pulses run on unscaled time and allocate nothing per frame; snap bursts and win confetti come from a fixed particle pool.
 - **Safe area**: every screen sits inside a `SafeAreaFitter`; touch targets are at least 48 dp.
 
-**See every screen without Unity**: the **UI screenshots** workflow (`.github/workflows/ui-screenshots.yml`) runs on pull requests that change UI files (`Assets/Scripts/UI/`, `Assets/Resources/UI/`, `Assets/Art/`, the monetization overlays, the screenshot runner or the workflow itself), or by hand from the Actions tab (**Run workflow** on any branch). It builds a Linux development player, presses through onboarding, HUD, hint (rewarded test ad), settings, dev menu, win card, interstitial, level select (with and without the test banner), the test store and the theme packs screen at 1080x2400 and 720x1600, and uploads the PNGs as the `ui-screenshots` artifact. The run uses the Unity seat, so it queues behind Android builds. The driver is `Assets/Scripts/Dev/UIScreenshotRunner.cs` (inert unless the player is started with `-snaploop-screenshots <dir>`); it finds buttons by GameObject name, so keep those names when you restyle a screen.
+**See every screen without Unity**: the **UI screenshots** workflow (`.github/workflows/ui-screenshots.yml`) runs on pull requests that change UI files (`Assets/Scripts/UI/`, `Assets/Resources/UI/`, `Assets/Art/`, the monetization overlays, the screenshot runner or the workflow itself), or by hand from the Actions tab (**Run workflow** on any branch). It builds a Linux development player, presses through onboarding, HUD, hint (rewarded test ad), settings, dev menu, win card (before and after Claim), interstitial, level select, the album (with and without the test banner), the test store and the theme packs screen at 1080x2400 and 720x1600, and uploads the PNGs as the `ui-screenshots` artifact. The run uses the Unity seat, so it queues behind Android builds. The driver is `Assets/Scripts/Dev/UIScreenshotRunner.cs` (inert unless the player is started with `-snaploop-screenshots <dir>`); it finds buttons by GameObject name, so keep those names when you restyle a screen.
 
 ## Extension points (ads/IAP, clip capture)
 
 Gameplay code never calls ads or capture directly. Follow-up systems hook in from a `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]` method:
 
 - `Snaploop.Core.GameEvents`: `PuzzleStarted`, `PuzzlePlayable`, `PieceSnapped`, `HintUsed`, `PuzzleCompleted`, `RevealStarted`, `RevealFinished`, `NextRequested`, `PuzzleAbandoned`.
-- `GameServices.Hints` (`IHintGate`): the hint button calls `RequestHint(onResult)`. The default grants every hint for free. A rewarded-ad gate replaces it and sets the button's `ButtonLabel`, whether it is shown at all (`IsOffered`; a hint that isn't on offer is hidden, not greyed out) and whether it gets the rewarded look (`IsRewardedAd`: green with an AD badge, from `UIFactory.SetRewardedLook`). Call `GameServices.NotifyHintOfferChanged()` when any of these change.
+- `GameServices.Hints` (`IHintGate`): the hint button calls `RequestHint(onResult)`. The default is `TokenHintGate`, which spends `TokenCost` tokens and, when the player is short, hands over to the rewarded-ad gate it wraps (none without an ad network). Call `Refund()` if the board couldn't place the hint. The gate sets the button's `ButtonLabel`, whether it is shown at all (`IsOffered`; a hint that isn't on offer is hidden, not greyed out) and whether it gets the rewarded look (`IsRewardedAd`: green with an AD badge, from `UIFactory.SetRewardedLook`). Call `GameServices.NotifyHintOfferChanged()` when any of these change.
 - `GameServices.BetweenPuzzles` (`IBetweenPuzzlesGate`): runs when the player taps **Next** on the win card, before the next level loads. This is the only interstitial slot; it is never invoked mid-puzzle.
 - `GameServices.Share` (`IShareProvider`): when it is set and `IsAvailable`, the win card shows a Share button.
 - `GameServices.AddSettingsEntry(label, onClick, isVisible)`: adds rows such as "Remove Ads" or "Restore Purchases" to Settings. `GameServices.NotifySettingsChanged()` refreshes an open Settings screen.
@@ -161,13 +163,13 @@ Code lives in `Assets/Scripts/Monetization/` and installs itself before the firs
 
 ### The rules
 
-**Rewarded (hints and Double tokens):**
+**Rewarded (hints and Claim x3):**
 
-- Each hint costs one rewarded ad, and the hint is granted only if the ad is watched to the end. An ad closed early still counts toward the caps and the interstitial cooldown.
+- A hint costs 15 tokens. Only a player with fewer than 15 tokens is offered the rewarded ad instead, and that hint is granted only if the ad is watched to the end. An ad closed early still counts toward the caps and the interstitial cooldown.
 - Caps: 8 per session, 20 per day. Available from the first session, and still available after buying Remove Ads.
-- The hint button is hidden (not greyed out) while no rewarded ad is loaded or a cap is reached, and appears as soon as one loads. When it costs an ad it reads "Get a hint", turns green and has an **AD** badge (`UIFactory.SetRewardedLook`, the shared look for any future rewarded button).
-- Builds with no ad network, and builds where rewarded ads are switched off, keep free hints.
-- **Double tokens** on the win card (placement `double_tokens`) follows the same rules and counts against the same caps (8 per session, 20 per day) and the 90 s rewarded-to-interstitial cooldown. It is offered once per win, only when the win paid tokens, and only while a rewarded ad is loaded; otherwise the button is hidden. Its label states the reward ("Double to 16"). The bonus is paid only for a full watch; an abandoned ad can be retried while the card is open. There is no free doubling without an ad network. Kill switch: `ads_rewarded_double_tokens_enabled` (and `ads_rewarded_enabled` for all rewarded ads).
+- For a player short of tokens, the hint button is hidden (not greyed out) while no rewarded ad is loaded or a cap is reached, and appears as soon as one loads or the player earns enough tokens. When it costs an ad it reads "Get a hint", turns green and has an **AD** badge (`UIFactory.SetRewardedLook`, the shared look for any future rewarded button).
+- Builds with no ad network, and builds where rewarded ads are switched off, sell hints for tokens only; there are no free hints.
+- **Claim x3** on the win card (placement `claim_x3`) follows the same rules and counts against the same caps (8 per session, 20 per day) and the 90 s rewarded-to-interstitial cooldown. It is offered once per win, only when the win paid tokens, and only while a rewarded ad is loaded; otherwise the button is hidden. Its sub-label states the total ("+24" for an 8-token clear). The bonus is paid only for a full watch; an abandoned ad can be retried while the card is open, and the plain **Claim** is always there. There is no free tripling without an ad network. The plain claim never shows an ad, and the interstitial only ever follows **Next**. Kill switch: `ads_rewarded_claim_triple_enabled` (and `ads_rewarded_enabled` for all rewarded ads).
 
 **Interstitials (only on Next after a win):** Snaploop has no fail or retry, so the win card's **Next** is the only slot. Checked in this order; the first rule that fails blocks the ad:
 
@@ -211,7 +213,7 @@ Everything is in one asset: **`Assets/Resources/Monetization/MonetizationConfig.
 | `adapter` | `Auto` (default): test ads in the Editor and development builds; in release builds, LevelPlay if it's set up, otherwise no ads. `TestAds`, `LevelPlay` and `Disabled` force one choice. Test ads never run in a release build. |
 | `levelPlayAndroid` | Release ids: `appKey`, and the `rewarded`, `interstitial` and `banner` ad unit ids. Empty for now. Used by release builds only. |
 | `levelPlayTestAndroid` | Ids every development build uses, whatever is above. Defaults are LevelPlay's public demo ids from its Unity sample (app key `25b63cf85`). |
-| `hintPlacement`, `nextLevelPlacement`, `levelSelectBannerPlacement`, `doubleTokensPlacement` | Placement names reported to the network: `hint`, `next_level`, `level_select`, `double_tokens`. |
+| `hintPlacement`, `nextLevelPlacement`, `levelSelectBannerPlacement`, `claimTriplePlacement` | Placement names reported to the network: `hint`, `next_level`, `level_select`, `claim_x3`. |
 | `adRules` | Every number in the tables above (field names match, e.g. `interMaxPerDay` for `ads_inter_max_per_day`). They can only be made stricter than the defaults. |
 | `testRewardedSeconds`, `testInterstitialCloseDelaySec` | Length of the fake ads. |
 | `removeAdsProductId` | Google Play product id of the Remove Ads non-consumable. The placeholder is `remove_ads`. |
@@ -244,7 +246,7 @@ Everything is in one asset: **`Assets/Resources/Monetization/MonetizationConfig.
 
 ### Remove Ads purchase
 
-- Remove Ads removes interstitials and banners only. Hint ads stay, because the player chooses to watch them.
+- Remove Ads removes interstitials and banners only. Hint ads and Claim x3 stay, because the player chooses to watch them.
 - Unity IAP 5.4.4 (`com.unity.purchasing`, in `Packages/manifest.json`) with one non-consumable. Release builds use Google Play billing through it.
 - The entitlement is saved in `Application.persistentDataPath/entitlements.json`, not PlayerPrefs, so the dev menu's "Reset progress" doesn't remove it. On every launch the app asks Google Play for past purchases and grants Remove Ads again if it's owned. A reinstall or a new device restores it automatically, and the **Restore Purchases** row does the same on demand.
 - The purchase is granted when Google Play reports it and confirmed after that. If confirmation is interrupted, Google Play delivers the purchase again on the next launch. A refund doesn't remove the entitlement automatically, and there is no server-side receipt validation.
@@ -268,10 +270,10 @@ Everything is in one asset: **`Assets/Resources/Monetization/MonetizationConfig.
 | Strategy section | In Snaploop now | Later |
 | --- | --- | --- |
 | 2. Formats and placements | Rewarded hint, interstitial on Next after a win, banner on level select | Retry interstitial (Snaploop has no fail state) |
-| 3. Rewarded | Hint offer and Double tokens on the win card (shared caps), reward only on a full watch, hidden until loaded, shared green look with AD badge | Other offers (revive, save streak, try a skin, extra spin): they need a fail state or more retention systems |
+| 3. Rewarded | Hint fallback when short of tokens and Claim x3 on the win card (shared caps), reward only on a full watch, hidden until loaded, shared green look with AD badge | Other offers (revive, save streak, try a skin, extra spin): they need a fail state or more retention systems |
 | 4. Interstitial gates | The strategy's rules 1–6 and 8–12 plus the mid-puzzle guard, rage-quit pause (4.1), sessions, local-midnight reset, clock clamp | Frustration block (rule 7: Snaploop has no fail state); exploration skip and ad engine (4.2: need analytics) |
 | 5. Banners | All of it | |
-| 6. Retention systems | Soft currency (tokens) earned by clearing puzzles, spent on theme packs | Daily rewards, spins, streaks, daily challenge, token purchases, reminders (post-MVP) |
+| 6. Retention systems | Soft currency (tokens) earned by clearing puzzles and filling album pages, spent on theme packs and hints | Daily rewards, spins, streaks, daily challenge, token purchases, reminders (post-MVP) |
 | 7. Purchase | Remove Ads and one non-consumable per theme pack via Unity IAP instead of RevenueCat | Bundles |
 | 8. Consent | Seam, "no request before consent", Privacy choices row | UMP itself, non-personalized ads without TCF consent, reloading ads after a consent change |
 | 9. Remote config and A/B | Keys, validation, reduce-only guarantee, applied at session start, stub provider | A real provider (e.g. Unity Remote Config or Firebase); A/B tests |
@@ -349,4 +351,4 @@ The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `I
 - UI text uses Unity's built-in LegacyRuntime font (no TextMeshPro assets).
 - The package id `com.snaploop.game` is a placeholder.
 - Monetization has only been compiled, not run. The ad rules are unit-tested in plain .NET, but the test ad, banner and store overlays, the Unity IAP flow and the LevelPlay adapter haven't been run in Unity or on a device. No real ad network, consent form or Play billing has been tried, because no accounts exist yet.
-- Theme packs have only been compiled, not run. The token rules are unit-tested, but the pack screen, the locked-level preview video, the Double tokens offer and pack purchases haven't been seen in Unity yet. The four launch packs have no clips in this branch, so they show **Coming soon** until their footage and `pack` entries land.
+- Theme packs have only been compiled, not run. The token rules are unit-tested, but the pack screen, the locked-level preview video, the Claim / Claim x3 card, the token flight, the album and pack purchases haven't been seen in Unity yet. The four launch packs have no clips in this branch, so they show **Coming soon** until their footage and `pack` entries land.

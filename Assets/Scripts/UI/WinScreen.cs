@@ -8,30 +8,43 @@ namespace Snaploop.UI
 {
     /// <summary>
     /// Celebration sheet after the reveal, with the solved loop still playing above it: stars slam in over a
-    /// sunburst, a ribbon, time/hint/token chips, the pack's star goal, then the optional rewarded "Double tokens"
-    /// offer (green, only while an ad is ready), Next (primary), Share clip and Levels.
+    /// sunburst, a ribbon, time/hint/token chips, the pack's star goal and, on a first clear, the album slot it filled.
+    /// The buttons wait <see cref="HoldSec"/> so the reveal gets watched: Claim (and the rewarded "Claim x3", only
+    /// while an ad is ready), Next (primary), Share clip and Levels. Claimed tokens fly into the counter top left.
+    /// The clear's tokens are already in the wallet, so leaving without claiming loses nothing.
     /// </summary>
     public sealed class WinScreen : UIScreen
     {
         static UITheme T => UITheme.Current;
 
+        public const float HoldSec = 1.5f;
+        const float CardDp = 352f;
+        const float AlbumDp = 50f;
+
+        readonly MonoBehaviour host;
         readonly RectTransform card, ribbon, burst, chipsRow, timeChip, hintChip, extraChip, tokenChip, goalFill;
-        readonly Text ribbonTitle, goalText, credit;
+        readonly RectTransform actions, claimRow, claimedNote, albumRow;
+        readonly CanvasGroup actionsGroup;
+        readonly Text ribbonTitle, goalText, credit, claimedText, albumLabel;
         readonly Image[] slots, fills;
-        readonly Button next, share, levels, doubleTokens;
-        readonly Pulse doublePulse;
+        readonly Button next, share, levels, claim, claimTriple;
+        readonly Pulse triplePulse;
+        readonly TokenPill wallet;
+        readonly AlbumStrip albumStrip;
         readonly Action<PuzzleResult> onShare;
         PuzzleResult result;
-        float anim = -1f;
+        AlbumFill album;
+        float anim = -1f, hold = -1f;
         int starsLanded;
-        bool doubleClaimed, doublePending;
+        bool hasClaim, claimed, triplePending;
+        int unclaimed, walletShown;
 
-        const float CardDp = 352f;
         float OfferDp => UIFactory.ButtonHeight(ButtonSize.Large) / T.dp + 10f;
         static readonly float[] StarTimes = { 0.18f, 0.51f, 0.84f };
 
-        public WinScreen(Transform safeRoot, Action onNext, Action onLevels, Action<PuzzleResult> onShare)
+        public WinScreen(Transform safeRoot, MonoBehaviour coroutineHost, Action onNext, Action onLevels, Action<PuzzleResult> onShare)
         {
+            host = coroutineHost;
             this.onShare = onShare;
             Root = UIFactory.Stretch(UIFactory.Rect("Win", safeRoot));
             float pad = T.U(12f);
@@ -102,34 +115,69 @@ namespace Snaploop.UI
             goalFill.anchorMin = Vector2.zero; goalFill.anchorMax = new Vector2(0f, 1f); goalFill.offsetMin = goalFill.offsetMax = Vector2.zero;
             UIFactory.Gradient(fill, T.gold, T.orange, GradientDirection.Horizontal);
 
+            // Album: the slot this first clear filled, on its page.
+            albumRow = UIFactory.Rect("Album", card);
+            albumRow.anchorMin = new Vector2(0f, 0f); albumRow.anchorMax = new Vector2(1f, 0f); albumRow.pivot = new Vector2(0.5f, 0f);
+            albumRow.sizeDelta = new Vector2(-2f * inner, T.U(AlbumDp - 6f));
+            albumLabel = UIFactory.Text("Label", albumRow, "", TextRole.Label, T.labelS - 1f, T.textDim, TextAnchor.UpperLeft);
+            var alrt = albumLabel.rectTransform;
+            alrt.anchorMin = new Vector2(0f, 1f); alrt.anchorMax = new Vector2(1f, 1f); alrt.pivot = new Vector2(0.5f, 1f);
+            alrt.sizeDelta = new Vector2(0f, T.U(17f)); alrt.anchoredPosition = Vector2.zero;
+            float cardInnerW = UILayout.ReferenceWidth - 2f * pad - 2f * inner;
+            albumStrip = new AlbumStrip("Strip", albumRow, host, cardInnerW, T.U(25f));
+            UIFactory.Place(albumStrip.Root, new Vector2(0.5f, 0f), albumStrip.Root.sizeDelta);
+
+            // Everything tappable sits in one group so the hold can keep it hidden and inert.
+            actions = UIFactory.Stretch(UIFactory.Rect("Actions", card));
+            actionsGroup = actions.gameObject.AddComponent<CanvasGroup>();
+
             float heroH = UIFactory.ButtonHeight(ButtonSize.Hero), largeH = UIFactory.ButtonHeight(ButtonSize.Large);
-            next = UIFactory.JuicyButton("Next", card, ButtonTone.Primary, ButtonSize.Hero, "Next puzzle", () => onNext(), UISprites.Next, "Level 2");
+            next = UIFactory.JuicyButton("Next", actions, ButtonTone.Primary, ButtonSize.Hero, "Next puzzle", () => onNext(), UISprites.Next, "Level 2");
             var nrt = (RectTransform)next.transform;
             nrt.anchorMin = new Vector2(0f, 0f); nrt.anchorMax = new Vector2(1f, 0f); nrt.pivot = new Vector2(0.5f, 0f);
             nrt.sizeDelta = new Vector2(-2f * inner, heroH);
             nrt.anchoredPosition = new Vector2(0f, T.U(30f) + largeH + T.U(10f));
 
-            share = UIFactory.JuicyButton("Share", card, ButtonTone.Blue, ButtonSize.Large, "Share clip", () => this.onShare?.Invoke(result), UISprites.Share);
-            levels = UIFactory.JuicyButton("Levels", card, ButtonTone.Neutral, ButtonSize.Large, "Levels", () => onLevels(), UISprites.Grid);
+            share = UIFactory.JuicyButton("Share", actions, ButtonTone.Blue, ButtonSize.Large, "Share clip", () => this.onShare?.Invoke(result), UISprites.Share);
+            levels = UIFactory.JuicyButton("Levels", actions, ButtonTone.Neutral, ButtonSize.Large, "Levels", () => onLevels(), UISprites.Grid);
 
-            doubleTokens = UIFactory.JuicyButton("DoubleTokens", card, ButtonTone.Reward, ButtonSize.Large, "Double tokens", OnDoubleTokens);
-            var drt = (RectTransform)doubleTokens.transform;
-            drt.anchorMin = new Vector2(0f, 0f); drt.anchorMax = new Vector2(1f, 0f); drt.pivot = new Vector2(0.5f, 0f);
-            drt.sizeDelta = new Vector2(-2f * inner, largeH);
-            drt.anchoredPosition = new Vector2(0f, nrt.anchoredPosition.y + heroH + T.U(10f));
-            var dparts = doubleTokens.GetComponent<JuicyButtonParts>();
-            var dIcon = UIFactory.TokenIcon("Token", dparts.content, T.U(28f));
-            dIcon.SetAsFirstSibling();
-            var dle = dIcon.gameObject.AddComponent<LayoutElement>();
-            dle.preferredWidth = dle.preferredHeight = T.U(28f);
-            UIFactory.SetRewardedLook(doubleTokens, true);
-            doublePulse = dparts.face.gameObject.AddComponent<Pulse>();
-            doubleTokens.gameObject.SetActive(false);
-            GameServices.RewardedOffersChanged += RefreshDoubleOffer;
+            claimRow = UIFactory.Rect("ClaimRow", actions);
+            claimRow.anchorMin = new Vector2(0f, 0f); claimRow.anchorMax = new Vector2(1f, 0f); claimRow.pivot = new Vector2(0.5f, 0f);
+            claimRow.sizeDelta = new Vector2(-2f * inner, largeH);
+            claim = UIFactory.JuicyButton("ClaimPlain", claimRow, ButtonTone.Blue, ButtonSize.Large, "Claim", OnClaim, null, "+0");
+            AddTokenGlyph(claim);
+            claimTriple = UIFactory.JuicyButton("ClaimTriple", claimRow, ButtonTone.Reward, ButtonSize.Large, "Claim x3", OnClaimTriple, null, "+0");
+            AddTokenGlyph(claimTriple);
+            UIFactory.SetRewardedLook(claimTriple, true);
+            triplePulse = claimTriple.GetComponent<JuicyButtonParts>().face.gameObject.AddComponent<Pulse>();
+            claimTriple.gameObject.SetActive(false);
+
+            var note = UIFactory.Sunk("Claimed", claimRow, 16f);
+            claimedNote = note.rectTransform;
+            UIFactory.Stretch(claimedNote, 0, 0, T.U(6f), T.U(6f));
+            var check = UIFactory.Icon("Check", note.transform, UISprites.Check, T.green, 22f);
+            UIFactory.Place(check.rectTransform, new Vector2(0f, 0.5f), check.rectTransform.sizeDelta, new Vector2(T.U(14f), 0f));
+            claimedText = UIFactory.Text("Text", note.transform, "", TextRole.Label, T.label, Color.white);
+            UIFactory.Stretch(claimedText.rectTransform, T.U(40f), T.U(14f), 0, 0);
+            claimedNote.gameObject.SetActive(false);
+            GameServices.RewardedOffersChanged += RefreshClaimOffer;
 
             credit = UIFactory.Text("Credit", card, "", TextRole.Body, T.bodyS - 1f, T.textMute);
             UIFactory.Place(credit.rectTransform, new Vector2(0.5f, 0f), new Vector2(T.U(340f), T.U(20f)), new Vector2(0f, T.U(7f)));
+
+            // The wallet the claimed tokens fly into. Only on this card, never over a puzzle.
+            wallet = new TokenPill("Wallet", Root, 36f);
+            UIFactory.Place(wallet.Root, new Vector2(0f, 1f), wallet.Root.sizeDelta, new Vector2(T.U(T.screenPad + 10f), -T.U(T.screenPad)));
             Hide();
+        }
+
+        static void AddTokenGlyph(Button b)
+        {
+            var parts = b.GetComponent<JuicyButtonParts>();
+            var icon = UIFactory.TokenIcon("Token", parts.content, T.U(28f));
+            icon.SetAsFirstSibling();
+            var le = icon.gameObject.AddComponent<LayoutElement>();
+            le.preferredWidth = le.preferredHeight = T.U(28f);
         }
 
         void LayoutSecondary(bool canShare)
@@ -152,12 +200,20 @@ namespace Snaploop.UI
             }
         }
 
-        /// <summary>Shows the result; <paramref name="nextLevel"/> is the next puzzle in the same pack, or null at its end.</summary>
-        public void ShowResult(PuzzleResult r, LevelInfo nextLevel)
+        /// <summary>
+        /// Shows the result; <paramref name="nextLevel"/> is the next puzzle in the same pack, or null at its end.
+        /// <paramref name="albumFill"/> is what this clear did to the album (its page bonus is already in the wallet).
+        /// </summary>
+        public void ShowResult(PuzzleResult r, LevelInfo nextLevel, AlbumFill albumFill)
         {
             result = r;
-            doubleClaimed = doublePending = false;
+            album = albumFill;
+            claimed = triplePending = false;
+            unclaimed = Mathf.Max(0, r.TokensEarned) + Mathf.Max(0, albumFill.Bonus);
+            hasClaim = unclaimed > 0;
+            walletShown = Mathf.Max(0, Tokens.Balance - unclaimed);
             Show();
+            wallet.SetValue(walletShown, false);
             ribbonTitle.text = r.Stars >= 3 ? "Perfect!" : r.IsFirstClear ? "Solved!" : "Solved again!";
 
             int secs = Mathf.RoundToInt(r.ElapsedSec);
@@ -188,14 +244,28 @@ namespace Snaploop.UI
                 UIFactory.SetButtonText(next, "Next puzzle", LevelSelectScreen.LevelLabel(nextLevel, PackCatalog.For(nextLevel)) + " · " + nextLevel.DisplayTitle);
             else if (pack != null && !pack.IsStarter) UIFactory.SetButtonText(next, "Pack complete!", "Back to the puzzles");
             else UIFactory.SetButtonText(next, "All done!", "Back to all puzzles");
-            RefreshDoubleOffer();
             credit.text = string.IsNullOrEmpty(r.Level.credit) ? "" : "Video: " + r.Level.credit;
+
+            albumRow.gameObject.SetActive(album.Filled);
+            if (album.Filled)
+            {
+                albumStrip.Bind(album.Page, album.Slot);
+                albumLabel.text = album.PageCompleted
+                    ? "Album page " + (album.Page + 1) + " complete!  +" + album.Bonus + " tokens"
+                    : "Album page " + (album.Page + 1) + " · " + (album.Slot + 1) + " of " + AlbumRules.SlotsPerPage +
+                      " · +" + AlbumRules.PageBonus + " when full";
+                albumLabel.color = album.PageCompleted ? T.gold : T.textDim;
+            }
 
             var sp = GameServices.Share;
             bool canShare = sp != null && sp.IsAvailable;
             share.gameObject.SetActive(canShare);
             if (canShare) UIFactory.SetButtonText(share, sp.ButtonLabel);
             LayoutSecondary(canShare);
+            claimedNote.gameObject.SetActive(false);
+            claim.gameObject.SetActive(true);
+            claim.interactable = true;
+            RefreshClaimOffer();
 
             UIFactory.SetStars(slots, 0);
             for (int i = 0; i < fills.Length; i++)
@@ -205,86 +275,190 @@ namespace Snaploop.UI
             }
             starsLanded = 0;
             anim = 0f;
+            hold = 0f;
+            SetActionsLive(false);
 
             UITween.Get(card).Move(new Vector2(0f, -T.U(CardDp + 40f)), Vector2.zero).Play(T.medium, EaseType.OutCubic);
             UITween.Get(burst).Fade(0f, 1f).Scale(0.6f, 1f).Play(T.medium, EaseType.OutBack, 0.1f);
             UITween.Get(burst.Find("Rays")).Rotate(0f, 120f).Play(9f, EaseType.OutCubic);
             UITween.Get(ribbon).Scale(0.4f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.26f);
-            UITween.Get(next).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.4f);
-            if (doubleTokens.gameObject.activeSelf)
-                UITween.Get(doubleTokens).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, 0.48f);
+            UITween.Get(wallet.Root).Fade(0f, 1f).Move(new Vector2(0f, T.U(20f)), Vector2.zero).Play(T.medium, EaseType.OutCubic, 0.3f);
+            if (album.Filled) UITween.Get(albumRow).Fade(0f, 1f).Play(T.medium, EaseType.OutCubic, 0.5f);
             if (UIFx.Instance != null) UIFx.Instance.Confetti();
         }
 
-        /// <summary>
-        /// Shows the green "Double to N" offer only while <see cref="GameServices.DoubleTokens"/> says an ad is ready
-        /// (caps and spacing are the ad policy's call), and grows the card to fit it. Once claimed it stays as a thank-you.
-        /// </summary>
-        void RefreshDoubleOffer()
+        void SetActionsLive(bool live)
         {
-            if (!IsVisible) return;
-            int earned = result.TokensEarned;
-            var offer = GameServices.DoubleTokens;
-            bool show = doubleClaimed || doublePending || (offer != null && offer.IsOffered(earned, doubleClaimed));
-            bool wasShown = doubleTokens.gameObject.activeSelf;
-            doubleTokens.gameObject.SetActive(show);
-            if (show && !doubleClaimed)
-            {
-                UIFactory.SetRewardedLook(doubleTokens, true);
-                UIFactory.SetButtonText(doubleTokens, "Double to " + (earned + TokenRules.DoubledBonus(earned)));
-                doubleTokens.interactable = !doublePending;
-                if (!wasShown) doublePulse.Restart();
-            }
-            LayoutCard(show);
+            actionsGroup.alpha = live ? 1f : 0f;
+            actionsGroup.interactable = live;
+            actionsGroup.blocksRaycasts = live;
         }
 
-        void LayoutCard(bool withOffer)
+        /// <summary>End of the hold: the buttons pop in, Claim first.</summary>
+        void RevealActions()
         {
-            float pad = T.U(12f);
-            float cardH = T.U(CardDp + (withOffer ? OfferDp : 0f));
+            SetActionsLive(true);
+            float d = 0f;
+            if (claimRow.gameObject.activeSelf)
+            {
+                UITween.Get(claimRow).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, d);
+                if (claimTriple.gameObject.activeSelf) triplePulse.Restart();
+                d += 0.08f;
+            }
+            UITween.Get(next).Scale(0.8f, 1f).Fade(0f, 1f).Play(T.medium, EaseType.OutBack, d);
+            UITween.Get(levels).Fade(0f, 1f).Play(T.medium, EaseType.OutCubic, d + 0.08f);
+            if (share.gameObject.activeSelf) UITween.Get(share).Fade(0f, 1f).Play(T.medium, EaseType.OutCubic, d + 0.08f);
+        }
+
+        /// <summary>
+        /// Claim (always, while there is something to claim) and the green "Claim x3" only while
+        /// <see cref="GameServices.ClaimTriple"/> says an ad is ready (caps and spacing are the ad policy's call).
+        /// </summary>
+        void RefreshClaimOffer()
+        {
+            if (!IsVisible) return;
+            bool showRow = hasClaim;
+            claimRow.gameObject.SetActive(showRow);
+            if (showRow && !claimed)
+            {
+                var offer = GameServices.ClaimTriple;
+                bool triple = triplePending || (offer != null && offer.IsOffered(result.TokensEarned, false));
+                bool wasShown = claimTriple.gameObject.activeSelf;
+                claimTriple.gameObject.SetActive(triple);
+                claimTriple.interactable = !triplePending;
+                claim.interactable = !triplePending;
+                UIFactory.SetButtonText(claim, "Claim", "+" + unclaimed);
+                UIFactory.SetButtonText(claimTriple, "Claim x" + TokenRules.ClaimMultiplier, "+" + (unclaimed + TokenRules.TripleBonus(result.TokensEarned)));
+                LayoutClaimButtons(triple);
+                if (triple && !wasShown && hold < 0f) triplePulse.Restart();
+            }
+            LayoutCard(showRow, album.Filled);
+        }
+
+        void LayoutClaimButtons(bool withTriple)
+        {
+            float gap = T.U(10f);
+            var prt = (RectTransform)claim.transform;
+            prt.pivot = new Vector2(0f, 0f);
+            prt.anchorMin = new Vector2(0f, 0f);
+            prt.anchorMax = new Vector2(withTriple ? 0.4f : 1f, 1f);
+            prt.offsetMin = Vector2.zero;
+            prt.offsetMax = new Vector2(withTriple ? -gap * 0.5f : 0f, 0f);
+            var trt = (RectTransform)claimTriple.transform;
+            trt.pivot = new Vector2(0f, 0f);
+            trt.anchorMin = new Vector2(0.4f, 0f);
+            trt.anchorMax = new Vector2(1f, 1f);
+            trt.offsetMin = new Vector2(gap * 0.5f, 0f);
+            trt.offsetMax = Vector2.zero;
+        }
+
+        /// <summary>Bottom-up: secondary row, Next, then the claim row and the album row when shown; the card grows to fit.</summary>
+        void LayoutCard(bool withClaim, bool withAlbum)
+        {
+            float pad = T.U(12f), largeH = UIFactory.ButtonHeight(ButtonSize.Large), heroH = UIFactory.ButtonHeight(ButtonSize.Hero);
+            float y = T.U(30f) + largeH + T.U(10f) + heroH + T.U(10f);
+            if (withClaim)
+            {
+                claimRow.anchoredPosition = new Vector2(0f, y);
+                y += largeH + T.U(10f);
+            }
+            if (withAlbum) albumRow.anchoredPosition = new Vector2(0f, y);
+            float cardH = T.U(CardDp + (withClaim ? OfferDp : 0f) + (withAlbum ? AlbumDp : 0f));
             card.sizeDelta = new Vector2(card.sizeDelta.x, cardH);
             burst.anchoredPosition = new Vector2(0f, pad + cardH - T.U(85f));
         }
 
-        void OnDoubleTokens()
+        void OnClaim()
         {
-            var offer = GameServices.DoubleTokens;
-            if (offer == null || doubleClaimed || doublePending) return;
-            if (!offer.IsOffered(result.TokensEarned, false)) { RefreshDoubleOffer(); return; }
-            doublePending = true;
-            doubleTokens.interactable = false;
+            if (claimed || triplePending || unclaimed <= 0) return;
+            Collect(unclaimed, claim);
+        }
+
+        void OnClaimTriple()
+        {
+            var offer = GameServices.ClaimTriple;
+            if (offer == null || claimed || triplePending) return;
+            if (!offer.IsOffered(result.TokensEarned, false)) { RefreshClaimOffer(); return; }
+            triplePending = true;
+            RefreshClaimOffer();
             var forResult = result.Level;
             offer.Request(earned =>
             {
-                doublePending = false;
-                if (!IsVisible || result.Level != forResult) return;
+                triplePending = false;
+                if (!IsVisible || result.Level != forResult || claimed) return;
                 if (earned)
                 {
-                    int bonus = TokenRules.DoubledBonus(result.TokensEarned);
+                    int bonus = TokenRules.TripleBonus(result.TokensEarned);
                     Tokens.Add(bonus);
-                    doubleClaimed = true;
-                    int total = result.TokensEarned + bonus;
-                    UIFactory.ChipText(tokenChip).text = "+" + total;
-                    UIFactory.SetRewardedLook(doubleTokens, false);
-                    UIFactory.SetButtonText(doubleTokens, "Tokens doubled! +" + total);
-                    doubleTokens.interactable = true;
+                    UIFactory.ChipText(tokenChip).text = "+" + (result.TokensEarned + bonus);
                     UITween.Get(tokenChip).Scale(1.4f, 1f).Play(0.45f, EaseType.OutElastic);
-                    Haptics.Success();
+                    Collect(unclaimed + bonus, claimTriple);
                     if (UIFx.Instance != null) UIFx.Instance.Confetti(40);
+                    return;
                 }
-                RefreshDoubleOffer();
+                RefreshClaimOffer();
             });
         }
+
+        /// <summary>Marks the win's tokens claimed and flies <paramref name="amount"/> of them from the button into the counter.</summary>
+        void Collect(int amount, Button from)
+        {
+            claimed = true;
+            unclaimed = 0;
+            Haptics.Success();
+            Vector2 fromPos = ScreenCenter((RectTransform)from.transform);
+            Vector2 toPos = ScreenCenter(wallet.Icon);
+            claim.gameObject.SetActive(false);
+            claimTriple.gameObject.SetActive(false);
+            claimedNote.gameObject.SetActive(true);
+            claimedText.text = "+" + amount + " tokens claimed";
+            UITween.Get(claimedNote).Scale(0.85f, 1f).Play(0.3f, EaseType.OutBack);
+
+            int start = walletShown, target = Tokens.Balance;
+            if (UIFx.Instance == null)
+            {
+                walletShown = target;
+                wallet.SetValue(target, true);
+                return;
+            }
+            int count = Mathf.Clamp(amount / 2, 5, 14), landed = 0;
+            UIFx.Instance.FlyTokens(fromPos, toPos, count, () =>
+            {
+                landed++;
+                walletShown = start + (target - start) * landed / count;
+                wallet.SetValue(walletShown, true);
+                wallet.Bump();
+                Haptics.Tick();
+            }, () =>
+            {
+                walletShown = Tokens.Balance;
+                wallet.SetValue(walletShown, true);
+            });
+        }
+
+        static Vector2 ScreenCenter(RectTransform rt) =>
+            RectTransformUtility.WorldToScreenPoint(null, rt.TransformPoint(rt.rect.center));
 
         public override void Hide()
         {
             base.Hide();
             anim = -1f;
+            hold = -1f;
         }
 
         public void Tick(float dt)
         {
-            if (anim < 0f || !IsVisible) return;
+            if (!IsVisible) return;
+            if (hold >= 0f)
+            {
+                hold += dt;
+                if (hold >= HoldSec)
+                {
+                    hold = -1f;
+                    RevealActions();
+                }
+            }
+            if (anim < 0f) return;
             anim += dt;
             while (starsLanded < StarTimes.Length && anim >= T.medium + StarTimes[starsLanded])
             {
@@ -296,7 +470,11 @@ namespace Snaploop.UI
                 Haptics.Tick();
                 Sfx.PlayClick();
             }
-            if (starsLanded >= StarTimes.Length) anim = -1f;
+            if (starsLanded >= StarTimes.Length)
+            {
+                anim = -1f;
+                if (album.PageCompleted && UIFx.Instance != null) UIFx.Instance.Confetti(40);
+            }
         }
     }
 }

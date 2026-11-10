@@ -61,8 +61,8 @@ namespace Snaploop.Monetization
 
         [Header("Placements (reported to the network)")]
         public string hintPlacement = "hint";
-        [Tooltip("Rewarded \"Double tokens\" button on the win card.")]
-        public string doubleTokensPlacement = "double_tokens";
+        [Tooltip("Rewarded \"Claim x3\" button on the win card.")]
+        public string claimTriplePlacement = "claim_x3";
         public string nextLevelPlacement = "next_level";
         public string levelSelectBannerPlacement = "level_select";
 

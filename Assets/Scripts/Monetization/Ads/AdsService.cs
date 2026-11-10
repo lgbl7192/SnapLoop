@@ -330,18 +330,18 @@ namespace Snaploop.Monetization
         public bool IsRewardedReady(string placement) =>
             network.ServesAds && current == null && RewardedBlock() == AdBlock.None;
 
-        bool? lastDoubleTokensReady;
+        bool? lastClaimTripleReady;
 
-        /// <summary>Whether the win card may show "Double tokens" (see <see cref="AdGate.DoubleTokens"/>). Logs offer changes.</summary>
-        public bool IsDoubleTokensReady(string placement, int tokensEarned, bool claimedThisWin)
+        /// <summary>Whether the win card may show "Claim x3" (see <see cref="AdGate.ClaimTriple"/>). Logs offer changes.</summary>
+        public bool IsClaimTripleReady(string placement, int tokensEarned, bool claimedThisWin)
         {
             AdBlock? block = !network.ServesAds ? AdBlock.KillSwitch
                 : current != null ? (AdBlock?)null
-                : AdGate.DoubleTokens(Context(AdFormat.Rewarded), tokensEarned, claimedThisWin);
+                : AdGate.ClaimTriple(Context(AdFormat.Rewarded), tokensEarned, claimedThisWin);
             bool ready = block == AdBlock.None;
-            if (ready != lastDoubleTokensReady)
+            if (ready != lastClaimTripleReady)
             {
-                lastDoubleTokensReady = ready;
+                lastClaimTripleReady = ready;
                 Log("rewarded_offer", AdFormat.Rewarded, placement, ready ? "shown" : "hidden reason=" + (block?.ToString() ?? "ShowInProgress"));
             }
             return ready;
@@ -628,7 +628,10 @@ namespace Snaploop.Monetization
         }
     }
 
-    /// <summary>The hint button: one rewarded ad per hint, hidden while no ad is ready or a cap is reached.</summary>
+    /// <summary>
+    /// The hint's ad option, used by <see cref="TokenHintGate"/> when the player is short of tokens: one rewarded ad
+    /// per hint, not offered while no ad is ready, a cap is reached, or there is no ad network. Remove Ads keeps it.
+    /// </summary>
     public sealed class RewardedHintGate : IHintGate
     {
         readonly AdsService ads;
@@ -640,18 +643,37 @@ namespace Snaploop.Monetization
             this.placement = placement;
         }
 
-        /// <summary>Builds without an ad network, or with rewarded ads switched off, keep free hints.</summary>
-        bool HintsNeedAd => ads.ServesAds && ads.Rules.rewardedEnabled;
+        bool AdsAvailable => ads.ServesAds && ads.Rules.rewardedEnabled;
 
-        public string ButtonLabel => HintsNeedAd ? "Get a hint" : "Hint";
-        public bool IsOffered => !HintsNeedAd || ads.IsRewardedReady(placement);
-        public bool IsRewardedAd => HintsNeedAd;
+        public string ButtonLabel => "Get a hint";
+        public bool IsOffered => AdsAvailable && ads.IsRewardedReady(placement);
+        public bool IsRewardedAd => true;
+        public int TokenCost => 0;
 
         public void RequestHint(Action<bool> onResult)
         {
-            if (!HintsNeedAd) { onResult(true); return; }
+            if (!AdsAvailable) { onResult(false); return; }
             ads.ShowRewarded(placement, onResult);
         }
+
+        public void Refund() { }
+    }
+
+    /// <summary>The win card's "Claim x3" rewarded offer: <see cref="AdGate.ClaimTriple"/> plus a loaded ad.</summary>
+    public sealed class ClaimTripleOffer : IClaimTripleOffer
+    {
+        readonly AdsService ads;
+        readonly string placement;
+
+        public ClaimTripleOffer(AdsService ads, string placement)
+        {
+            this.ads = ads;
+            this.placement = placement;
+        }
+
+        public bool IsOffered(int tokensEarned, bool claimedThisWin) => ads.IsClaimTripleReady(placement, tokensEarned, claimedThisWin);
+
+        public void Request(Action<bool> onResult) => ads.ShowRewarded(placement, onResult);
     }
 
     /// <summary>Next after a win: the only place an interstitial can appear.</summary>
