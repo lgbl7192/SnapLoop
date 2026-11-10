@@ -17,6 +17,8 @@ namespace Snaploop.UI
         public static readonly Color Text = new Color32(245, 246, 250, 255);
         public static readonly Color TextDim = new Color32(165, 170, 190, 255);
         public static readonly Color Star = new Color32(255, 200, 61, 255);
+        /// <summary>Every button that plays a rewarded ad uses this colour plus the AD badge (<see cref="UIFactory.SetRewardedLook"/>).</summary>
+        public static readonly Color Rewarded = new Color32(76, 175, 80, 255);
         public static readonly Color StarEmpty = new Color32(70, 74, 92, 255);
         public static readonly Color Scrim = new Color(0f, 0f, 0f, 0.62f);
     }
@@ -149,6 +151,27 @@ namespace Snaploop.UI
         }
 
         public static Text ButtonLabel(Button b) => b.GetComponentInChildren<Text>(true);
+
+        const string AdBadgeName = "AdBadge";
+
+        /// <summary>
+        /// The shared look of a button that plays a rewarded ad: <see cref="Palette.Rewarded"/> background and
+        /// an "AD" badge on the top-right corner. Pass false to restore <paramref name="normalColor"/>.
+        /// </summary>
+        public static void SetRewardedLook(Button b, bool rewarded, Color normalColor)
+        {
+            ((Image)b.targetGraphic).color = rewarded ? Palette.Rewarded : normalColor;
+            var badge = b.transform.Find(AdBadgeName);
+            if (badge == null && rewarded)
+            {
+                var bg = Panel(AdBadgeName, b.transform, Palette.Star, raycast: false);
+                Place(bg.rectTransform, new Vector2(1f, 1f), new Vector2(96, 56), new Vector2(18, 18));
+                var t = Label("Text", bg.transform, "AD", 32, Palette.Background, TextAnchor.MiddleCenter, FontStyle.Bold);
+                Stretch(t.rectTransform);
+                badge = bg.transform;
+            }
+            if (badge != null) badge.gameObject.SetActive(rewarded);
+        }
 
         /// <summary>Row of three star images; returns them left to right.</summary>
         public static Image[] Stars(Transform parent, float size, float spacing)

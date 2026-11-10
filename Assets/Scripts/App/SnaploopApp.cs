@@ -74,6 +74,7 @@ namespace Snaploop.App
             board.Completed += OnCompleted;
             board.RevealFinished += OnRevealFinished;
             GameEvents.RevealStarted += OnRevealStarted;
+            GameServices.HintOfferChanged += RefreshHintOffer;
 
             BuildUI();
         }
@@ -81,6 +82,7 @@ namespace Snaploop.App
         void OnDestroy()
         {
             GameEvents.RevealStarted -= OnRevealStarted;
+            GameServices.HintOfferChanged -= RefreshHintOffer;
             if (Instance == this) Instance = null;
         }
 
@@ -205,7 +207,8 @@ namespace Snaploop.App
             transitioning = false;
             levelSelect.Hide();
             win.Hide();
-            hud.ShowFor(level, GameServices.Hints.ButtonLabel);
+            hud.ShowFor(level);
+            RefreshHintOffer();
             board.SetPlayArea(UILayout.PuzzlePlayArea());
             board.InputEnabled = !AnyModalOpen();
             board.Begin(level);
@@ -241,6 +244,13 @@ namespace Snaploop.App
                 hud.SetHintInteractable(true);
                 if (granted) board.ApplyHint();
             });
+        }
+
+        void RefreshHintOffer()
+        {
+            if (hud == null) return;
+            var gate = GameServices.Hints;
+            hud.SetHintOffer(gate.ButtonLabel, gate.IsOffered, gate.IsRewardedAd);
         }
 
         void OnCompleted(PuzzleResult result)

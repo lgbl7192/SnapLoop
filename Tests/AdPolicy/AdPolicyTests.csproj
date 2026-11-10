@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Plain .NET tests for the pure ad rules (no Unity needed). See README, "Monetization". -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="AdPolicyTests.cs" />
+    <Compile Include="../../Assets/Scripts/Monetization/Ads/Policy/*.cs" />
+    <Compile Include="../../Assets/Scripts/Monetization/Ads/IAdNetwork.cs" />
+  </ItemGroup>
+</Project>

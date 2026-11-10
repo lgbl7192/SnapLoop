@@ -54,6 +54,9 @@ namespace Snaploop.Core
         /// <summary>The player left a puzzle without finishing it (back to level select).</summary>
         public static event Action<LevelInfo, int> PuzzleAbandoned;
 
+        /// <summary>The level select screen was shown (true) or hidden (false). The only screen that may carry a banner.</summary>
+        public static event Action<bool> LevelSelectVisibilityChanged;
+
         internal static void RaisePuzzleStarted(LevelInfo l, int i) => Invoke(PuzzleStarted, l, i);
         internal static void RaisePuzzlePlayable(LevelInfo l, int i) => Invoke(PuzzlePlayable, l, i);
         internal static void RaisePieceSnapped(int placed, int total) => Invoke(PieceSnapped, placed, total);
@@ -63,6 +66,13 @@ namespace Snaploop.Core
         internal static void RaiseRevealFinished(PuzzleResult r) => Invoke(RevealFinished, r);
         internal static void RaiseNextRequested(int from, int to) => Invoke(NextRequested, from, to);
         internal static void RaisePuzzleAbandoned(LevelInfo l, int i) => Invoke(PuzzleAbandoned, l, i);
+
+        internal static void SetLevelSelectVisible(bool visible)
+        {
+            if (GameContext.IsLevelSelectVisible == visible) return;
+            GameContext.IsLevelSelectVisible = visible;
+            Invoke(LevelSelectVisibilityChanged, visible);
+        }
 
         // A throwing subscriber must never break the game loop.
         static void Invoke<T>(Action<T> e, T a)

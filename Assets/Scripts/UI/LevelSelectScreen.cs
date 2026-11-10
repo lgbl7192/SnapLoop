@@ -25,7 +25,7 @@ namespace Snaploop.UI
 
         readonly MonoBehaviour host;
         readonly Action<int> onPlay;
-        readonly RectTransform content;
+        readonly RectTransform content, viewport;
         readonly Text message;
         readonly List<Card> cards = new List<Card>();
         readonly Dictionary<string, Texture2D> thumbs = new Dictionary<string, Texture2D>();
@@ -62,10 +62,10 @@ namespace Snaploop.UI
             }
 
             // Scrollable grid.
-            var viewport = UIFactory.Image("Viewport", Root, new Color(0, 0, 0, 0), null, raycast: true);
-            UIFactory.Stretch(viewport.rectTransform, 0, 0, 200, 0);
-            viewport.gameObject.AddComponent<RectMask2D>();
-            var scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            var viewportImage = UIFactory.Image("Viewport", Root, new Color(0, 0, 0, 0), null, raycast: true);
+            viewport = UIFactory.Stretch(viewportImage.rectTransform, 0, 0, 200, 0);
+            viewportImage.gameObject.AddComponent<RectMask2D>();
+            var scroll = viewportImage.gameObject.AddComponent<ScrollRect>();
             scroll.horizontal = false;
             scroll.movementType = ScrollRect.MovementType.Elastic;
             scroll.scrollSensitivity = 30f;
@@ -85,11 +85,21 @@ namespace Snaploop.UI
             var fitter = content.gameObject.AddComponent<ContentSizeFitter>();
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             scroll.content = content;
-            scroll.viewport = viewport.rectTransform;
+            scroll.viewport = viewport;
 
             message = UIFactory.Label("Message", Root, "", 40, Palette.TextDim);
             UIFactory.Place(message.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(900, 400));
+            GameServices.LevelSelectBottomInsetChanged += ApplyBottomInset;
+            ApplyBottomInset();
             Hide();
+        }
+
+        /// <summary>Shrinks the grid above a loaded banner; nothing is reserved while no banner is loaded.</summary>
+        void ApplyBottomInset()
+        {
+            float px = GameServices.LevelSelectBottomInset;
+            float units = px > 0f ? Mathf.Max(0f, px - Screen.safeArea.yMin) / UILayout.Scale : 0f;
+            viewport.offsetMin = new Vector2(viewport.offsetMin.x, units);
         }
 
         void OnWordmarkTap()
@@ -163,6 +173,13 @@ namespace Snaploop.UI
             base.Show();
             Refresh();
             host.StartCoroutine(LoadThumbnails());
+            GameEvents.SetLevelSelectVisible(true);
+        }
+
+        public override void Hide()
+        {
+            base.Hide();
+            GameEvents.SetLevelSelectVisible(false);
         }
 
         public static bool IsUnlocked(IReadOnlyList<LevelInfo> levels, int i)
