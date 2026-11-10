@@ -126,6 +126,172 @@
 
     { "id": "concourse-rush", "title": "Concourse Rush", "category": "crowds", "cols": 6, "rows": 6,
       "pexelsId": 29844136, "credit": "David Lomax / Pexels",
-      "sourceUrl": "https://www.pexels.com/video/busy-subway-station-with-commuters-29844136/", "startSec": 5.0 }
+      "sourceUrl": "https://www.pexels.com/video/busy-subway-station-with-commuters-29844136/", "startSec": 5.0 },
+
+    { "id": "moon-jellies", "title": "Moon Jellies", "pack": "sealife", "category": "jellyfish", "cols": 3, "rows": 3,
+      "pexelsId": 9816209, "credit": "MissDeena Travels / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-footage-of-swarm-of-jellyfish-in-an-aquarium-9816209/", "startSec": 0.1, "durationSec": 9.5 },
+
+    { "id": "clownfish-home", "title": "Clownfish Home", "pack": "sealife", "category": "reef", "cols": 3, "rows": 3,
+      "pexelsId": 40470269, "credit": "Olga Kobylko / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/colorful-clownfish-swimming-in-sea-anemone-40470269/", "startSec": 0.1 },
+
+    { "id": "sea-lion-glide", "title": "Sea Lion Glide", "pack": "sealife", "category": "marine mammals", "cols": 3, "rows": 4,
+      "pexelsId": 5607746, "credit": "Zlatin Georgiev / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/group-of-sea-lions-swimming-underwater-5607746/", "startSec": 0.5 },
+
+    { "id": "coral-garden", "title": "Coral Garden", "pack": "sealife", "category": "reef", "cols": 4, "rows": 4,
+      "pexelsId": 30864769, "credit": "JUN HO LEE / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vibrant-coral-reef-with-tropical-fish-underwater-30864769/", "startSec": 1.0, "cropX": 0.53 },
+
+    { "id": "sea-turtle", "title": "Sea Turtle", "pack": "sealife", "category": "open water", "cols": 4, "rows": 4,
+      "pexelsId": 33028280, "credit": "JUN HO LEE / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/majestic-sea-turtle-swimming-underwater-33028280/", "startSec": 3.0, "cropX": 0.45 },
+
+    { "id": "jelly-drift", "title": "Jelly Drift", "pack": "sealife", "category": "jellyfish", "cols": 4, "rows": 5,
+      "pexelsId": 16749295, "credit": "Eline SUN / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-swarm-of-jellyfish-swimming-in-blue-water-16749295/", "startSec": 2.0 },
+
+    { "id": "anemone-hideout", "title": "Anemone Hideout", "pack": "sealife", "category": "reef", "cols": 5, "rows": 5,
+      "pexelsId": 4001923, "credit": "Tom Fisk / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/clownfish-and-sea-anemone-4001923/", "startSec": 4.1, "durationSec": 10.43, "cropX": 0.7 },
+
+    { "id": "reef-wall", "title": "Reef Wall", "pack": "sealife", "category": "reef", "cols": 5, "rows": 6,
+      "pexelsId": 11273418, "credit": "Alex Mesel / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/underwater-footage-of-tropical-fish-in-a-coral-reef-11273418/", "startSec": 0.05, "durationSec": 9.3, "cropX": 0.65 },
+
+    { "id": "shark-cave", "title": "Shark Cave", "pack": "sealife", "category": "open water", "cols": 6, "rows": 6,
+      "pexelsId": 33847431, "credit": "JUN HO LEE / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/close-up-of-shark-swimming-in-underwater-cave-33847431/", "startSec": 2.0, "cropX": 0.45 },
+
+    { "id": "ray-squadron", "title": "Ray Squadron", "pack": "sealife", "category": "open water", "cols": 6, "rows": 6,
+      "pexelsId": 39608308, "credit": "Zihat Bepari / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/underwater-school-of-manta-rays-swimming-39608308/", "startSec": 4.5 },
+
+    { "id": "squirrel-snack", "title": "Squirrel Snack", "pack": "animals", "category": "small mammals", "cols": 3, "rows": 3,
+      "pexelsId": 34274739, "credit": "Mehmet Guzel / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/squirrel-munching-on-nut-on-tree-branch-34274739/", "startSec": 1.0 },
+
+    { "id": "meerkat-lookout", "title": "Meerkat Lookout", "pack": "animals", "category": "small mammals", "cols": 3, "rows": 3,
+      "pexelsId": 37886596, "credit": "Joolsmagools / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/meerkats-on-alert-in-natural-habitat-37886596/", "startSec": 1.0, "fadeSec": 1.5 },
+
+    { "id": "owlet", "title": "Owlet", "pack": "animals", "category": "birds", "cols": 3, "rows": 4,
+      "pexelsId": 17692816, "credit": "Boys in Bristol Photography / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-small-owl-sitting-on-a-branch-in-the-woods-17692816/", "startSec": 0.05, "durationSec": 9.2 },
+
+    { "id": "kitten-play", "title": "Kitten Play", "pack": "animals", "category": "pets", "cols": 4, "rows": 4,
+      "pexelsId": 35822884, "credit": "celal keser / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/playful-kitten-enjoying-a-colorful-toy-indoors-35822884/", "startSec": 1.0 },
+
+    { "id": "macaw", "title": "Macaw", "pack": "animals", "category": "birds", "cols": 4, "rows": 4,
+      "pexelsId": 36057303, "credit": "Emirhan Sayar / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/vibrant-macaw-parrot-in-lush-greenery-36057303/", "startSec": 5.0 },
+
+    { "id": "red-panda", "title": "Red Panda", "pack": "animals", "category": "small mammals", "cols": 4, "rows": 5,
+      "pexelsId": 8281950, "credit": "Nicky Pe / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-red-panda-eating-leaves-8281950/", "startSec": 2.0, "cropX": 0.65 },
+
+    { "id": "snowy-owl", "title": "Snowy Owl", "pack": "animals", "category": "birds", "cols": 5, "rows": 5,
+      "pexelsId": 8051173, "credit": "Nicky Pe / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/close-up-video-of-an-owl-8051173/", "startSec": 3.0, "cropX": 0.62 },
+
+    { "id": "giraffe-lunch", "title": "Giraffe Lunch", "pack": "animals", "category": "big mammals", "cols": 5, "rows": 6,
+      "pexelsId": 35546918, "credit": "Joolsmagools / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/giraffe-eating-leaves-at-zoo-enclosure-35546918/", "startSec": 8.17, "durationSec": 9.6 },
+
+    { "id": "elephant-walk", "title": "Elephant Walk", "pack": "animals", "category": "big mammals", "cols": 6, "rows": 6,
+      "pexelsId": 11760754, "credit": "ROMAN ODINTSOV / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/an-elephant-covered-in-mud-walking-in-the-african-savannah-11760754/", "startSec": 5.8, "durationSec": 8.93 },
+
+    { "id": "flamingo-flock", "title": "Flamingo Flock", "pack": "animals", "category": "birds", "cols": 6, "rows": 6,
+      "pexelsId": 9122738, "credit": "lemapuche breton / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/white-flamingos-in-a-wetland-9122738/", "startSec": 6.0 },
+
+    { "id": "milky-way", "title": "Milky Way", "pack": "space", "category": "night sky", "cols": 3, "rows": 3,
+      "pexelsId": 27893808, "credit": "Enes Beydilli / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/milk-way-27893808/", "startSec": 1.0 },
+
+    { "id": "crescent-moon", "title": "Crescent Moon", "pack": "space", "category": "moon", "cols": 3, "rows": 3,
+      "pexelsId": 37723924, "credit": "Earth Photart / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/crescent-moon-viewed-through-telescope-37723924/", "startSec": 10.0 },
+
+    { "id": "solar-flare", "title": "Solar Flare", "pack": "space", "category": "sun", "cols": 3, "rows": 4,
+      "nasaId": "GSFC_20160426_SDO_m12224_SolarFlare_4K", "nasaRendition": "orig", "fetchStartSec": 23.6, "fetchDurationSec": 12.5, "credit": "NASA Goddard / SDO",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/GSFC_20160426_SDO_m12224_SolarFlare_4K", "startSec": 0.4 },
+
+    { "id": "aurora-sky", "title": "Aurora Sky", "pack": "space", "category": "night sky", "cols": 4, "rows": 4,
+      "pexelsId": 28492331, "credit": "T Honkamies / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/northern-lights-timelapse-28492331/", "startSec": 0.5, "cropX": 0.55 },
+
+    { "id": "cloud-bands", "title": "Cloud Bands", "pack": "space", "category": "earth", "cols": 4, "rows": 4,
+      "nasaId": "NHQ_2020_1221_Earth Views", "fetchStartSec": 1650, "fetchDurationSec": 13, "credit": "NASA / ISS",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/NHQ_2020_1221_Earth%20Views", "startSec": 0.5 },
+
+    { "id": "coronal-loops", "title": "Coronal Loops", "pack": "space", "category": "sun", "cols": 4, "rows": 5,
+      "nasaId": "GSFC_20141222_SDO_m11721_Lights", "credit": "NASA Goddard / SDO",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/GSFC_20141222_SDO_m11721_Lights", "startSec": 18.3 },
+
+    { "id": "hurricane-eye", "title": "Hurricane Eye", "pack": "space", "category": "earth", "cols": 5, "rows": 5,
+      "nasaId": "jsc2022m000251_Expedition_67_Space_Station_Flyover_of_Hurricane_Ian_220928", "fetchStartSec": 243, "fetchDurationSec": 13, "credit": "NASA / ISS",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/jsc2022m000251_Expedition_67_Space_Station_Flyover_of_Hurricane_Ian_220928", "startSec": 1.0, "cropX": 0.45 },
+
+    { "id": "star-swirl", "title": "Star Swirl", "pack": "space", "category": "night sky", "cols": 5, "rows": 6,
+      "pexelsId": 29644226, "credit": "Dubang chang / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/stunning-star-trails-in-night-sky-29644226/", "startSec": 0.05, "durationSec": 8.0 },
+
+    { "id": "ocean-cyclone", "title": "Ocean Cyclone", "pack": "space", "category": "earth", "cols": 6, "rows": 6,
+      "nasaId": "NHQ_2020_1221_Earth Views", "fetchStartSec": 2160, "fetchDurationSec": 13, "credit": "NASA / ISS",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/NHQ_2020_1221_Earth%20Views", "startSec": 0.5 },
+
+    { "id": "solar-inferno", "title": "Solar Inferno", "pack": "space", "category": "sun", "cols": 6, "rows": 6,
+      "nasaId": "GSFC_20141222_SDO_m11721_Lights", "credit": "NASA Goddard / SDO",
+      "license": "Public domain (NASA)", "licenseUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "sourceUrl": "https://images.nasa.gov/details/GSFC_20141222_SDO_m11721_Lights", "startSec": 40.5 },
+
+    { "id": "red-bauble", "title": "Red Bauble", "pack": "christmas", "category": "ornaments", "cols": 3, "rows": 3,
+      "pexelsId": 35200354, "credit": "Efrem Efre / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/elegant-red-bauble-on-nordic-christmas-tree-35200354/", "startSec": 2.0, "cropX": 0.745 },
+
+    { "id": "snowflake-bauble", "title": "Snowflake Bauble", "pack": "christmas", "category": "ornaments", "cols": 3, "rows": 3,
+      "pexelsId": 29069278, "credit": "Nicky Pe / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/festive-christmas-ornament-on-green-tree-branch-29069278/", "startSec": 3.0, "cropX": 0.37 },
+
+    { "id": "cocoa-marshmallows", "title": "Cocoa and Marshmallows", "pack": "christmas", "category": "cozy", "cols": 3, "rows": 4,
+      "pexelsId": 5264843, "credit": "Leeloo The First / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/pouring-caramel-on-marshmallows-on-a-mug-5264843/", "startSec": 4.0 },
+
+    { "id": "candle-glow", "title": "Candle Glow", "pack": "christmas", "category": "cozy", "cols": 4, "rows": 4,
+      "pexelsId": 6274482, "credit": "ROMAN ODINTSOV / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/burning-candles-and-gift-box-6274482/", "startSec": 1.0, "cropX": 0.29 },
+
+    { "id": "lit-house", "title": "Lit House", "pack": "christmas", "category": "lights", "cols": 4, "rows": 4,
+      "pexelsId": 4076197, "credit": "WeStarMoney Rec / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/a-house-across-the-street-decorated-with-lights-on-a-winter-night-4076197/", "startSec": 0.5, "cropX": 0.43 },
+
+    { "id": "gift-pile", "title": "Gift Pile", "pack": "christmas", "category": "decorations", "cols": 4, "rows": 5,
+      "pexelsId": 6098174, "credit": "Laura James / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/video-of-a-christmas-gifts-6098174/", "startSec": 3.0, "cropX": 0.33 },
+
+    { "id": "fireside", "title": "Fireside", "pack": "christmas", "category": "cozy", "cols": 5, "rows": 5,
+      "pexelsId": 34146772, "credit": "Michael Markhof / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/cozy-fireplace-with-burning-logs-at-night-34146772/", "startSec": 0.0, "durationSec": 8.9, "cropX": 0.65 },
+
+    { "id": "snowy-lamp", "title": "Snowy Lamp", "pack": "christmas", "category": "snow", "cols": 5, "rows": 6,
+      "pexelsId": 31165915, "credit": "SADAF EBADI / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/night-snowfall-by-street-lamp-in-winter-scenery-31165915/", "startSec": 5.0 },
+
+    { "id": "festive-wreath", "title": "Festive Wreath", "pack": "christmas", "category": "decorations", "cols": 6, "rows": 6,
+      "pexelsId": 6063479, "credit": "cottonbro studio / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/high-angle-shot-of-a-wreath-6063479/", "startSec": 0.0, "cropX": 0.29 },
+
+    { "id": "twinkling-tree", "title": "Twinkling Tree", "pack": "christmas", "category": "lights", "cols": 6, "rows": 6,
+      "pexelsId": 29624683, "credit": "C1 Superstar / Pexels",
+      "sourceUrl": "https://www.pexels.com/video/festive-christmas-tree-with-glowing-lights-29624683/", "startSec": 0.05, "durationSec": 8.4 }
   ]
 }

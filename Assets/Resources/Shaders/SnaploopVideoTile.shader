@@ -7,6 +7,7 @@
 // TEXCOORD2  exposed edges (left, right, bottom, top): 1 = the neighbour on that side is not in this tile's group
 // TEXCOORD3  concave notches (bottom-left, bottom-right, top-left, top-right): both side neighbours are in the
 //            group but the diagonal one is not
+// TEXCOORD4  x = outline flash (0-1): a thicker, brighter outline that marks a fresh merge
 // COLOR      rgb = outline colour, a = how much video shows inside (1 for tiles, low for empty slots)
 // A tile with no exposed edges and no notches draws as a plain quad (used for the reveal).
 // Lives in Resources so it is always included in builds (it is looked up with Shader.Find).
@@ -53,6 +54,7 @@ Shader "Snaploop/VideoTile"
                 float4 local : TEXCOORD1;
                 float4 edges : TEXCOORD2;
                 float4 notch : TEXCOORD3;
+                float2 flash : TEXCOORD4;
                 fixed4 color : COLOR;
             };
 
@@ -63,6 +65,7 @@ Shader "Snaploop/VideoTile"
                 float4 local : TEXCOORD1;
                 float4 edges : TEXCOORD2;
                 float4 notch : TEXCOORD3;
+                float flash : TEXCOORD4;
                 fixed4 color : COLOR;
             };
 
@@ -74,6 +77,7 @@ Shader "Snaploop/VideoTile"
                 o.local = v.local;
                 o.edges = v.edges;
                 o.notch = v.notch;
+                o.flash = saturate(v.flash.x);
                 o.color = v.color;
                 return o;
             }
@@ -115,10 +119,13 @@ Shader "Snaploop/VideoTile"
                 float aa = max(fwidth(d), 1e-5);
                 float alpha = saturate(d / aa + 0.5);
                 clip(alpha - 0.004);
-                float outline = 1.0 - saturate((d - _Outline) / aa + 0.5);
+                float width = _Outline * (1.0 + 1.5 * i.flash);
+                float outline = 1.0 - saturate((d - width) / aa + 0.5);
 
                 fixed3 video = tex2D(_MainTex, i.uv).rgb;
                 fixed3 inside = lerp(_Base.rgb, video, i.color.a);
+                // Soft glow just inside the outline while flashing; d is huge away from exposed edges.
+                inside = lerp(inside, fixed3(1, 1, 1), 0.35 * i.flash * saturate(1.0 - d / (width * 5.0)));
                 fixed3 c = lerp(inside, i.color.rgb, outline) * _Fade;
                 return fixed4(c, alpha);
             }

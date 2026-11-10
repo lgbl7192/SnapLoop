@@ -24,9 +24,10 @@ namespace Snaploop.Puzzle
         Vector4[] local;
         Vector4[] edges;
         Vector4[] notches;
+        Vector2[] flashes;
         Color32[] colors;
         int[] indices;
-        bool vertsDirty, edgesDirty, colorsDirty, indicesDirty;
+        bool vertsDirty, edgesDirty, flashDirty, colorsDirty, indicesDirty;
 
         static readonly Vector2[] Corners = { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1) };
 
@@ -53,6 +54,7 @@ namespace Snaploop.Puzzle
             local = new Vector4[n * 4];
             edges = new Vector4[n * 4];
             notches = new Vector4[n * 4];
+            flashes = new Vector2[n * 4];
             colors = new Color32[n * 4];
             indices = new int[n * 6];
 
@@ -80,10 +82,11 @@ namespace Snaploop.Puzzle
             Mesh.SetUVs(1, local);
             Mesh.SetUVs(2, edges);
             Mesh.SetUVs(3, notches);
+            Mesh.SetUVs(4, flashes);
             Mesh.SetColors(colors);
             Mesh.SetIndices(indices, MeshTopology.Triangles, 0, false);
             Mesh.bounds = new Bounds(Vector3.zero, new Vector3(1000f, 1000f, 1000f));
-            vertsDirty = edgesDirty = colorsDirty = indicesDirty = false;
+            vertsDirty = edgesDirty = flashDirty = colorsDirty = indicesDirty = false;
         }
 
         /// <summary>World-space centre of a tile when it is in its correct cell.</summary>
@@ -121,6 +124,16 @@ namespace Snaploop.Puzzle
             edgesDirty = true;
         }
 
+        /// <summary>Outline flash, 0 (none) to 1 (thick and bright); shows on the tile's exposed edges only.</summary>
+        public void SetFlash(int tile, float amount)
+        {
+            var f = new Vector2(amount, 0f);
+            int v = tile * 4;
+            if (flashes[v] == f) return;
+            for (int k = 0; k < 4; k++) flashes[v + k] = f;
+            flashDirty = true;
+        }
+
         /// <summary>rgb = outline colour, a = video strength inside the tile.</summary>
         public void SetColor(int tile, Color32 color)
         {
@@ -144,9 +157,10 @@ namespace Snaploop.Puzzle
                 Mesh.SetUVs(2, edges, 0, edges.Length, UploadFlags);
                 Mesh.SetUVs(3, notches, 0, notches.Length, UploadFlags);
             }
+            if (flashDirty) Mesh.SetUVs(4, flashes, 0, flashes.Length, UploadFlags);
             if (colorsDirty) Mesh.SetColors(colors, 0, colors.Length, UploadFlags);
             if (indicesDirty) Mesh.SetIndices(indices, MeshTopology.Triangles, 0, false);
-            vertsDirty = edgesDirty = colorsDirty = indicesDirty = false;
+            vertsDirty = edgesDirty = flashDirty = colorsDirty = indicesDirty = false;
         }
 
         void WriteQuadIndices(int slot, int tile)
