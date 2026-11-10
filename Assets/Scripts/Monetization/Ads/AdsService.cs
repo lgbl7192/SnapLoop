@@ -330,6 +330,23 @@ namespace Snaploop.Monetization
         public bool IsRewardedReady(string placement) =>
             network.ServesAds && current == null && RewardedBlock() == AdBlock.None;
 
+        bool? lastDoubleTokensReady;
+
+        /// <summary>Whether the win card may show "Double tokens" (see <see cref="AdGate.DoubleTokens"/>). Logs offer changes.</summary>
+        public bool IsDoubleTokensReady(string placement, int tokensEarned, bool claimedThisWin)
+        {
+            AdBlock? block = !network.ServesAds ? AdBlock.KillSwitch
+                : current != null ? (AdBlock?)null
+                : AdGate.DoubleTokens(Context(AdFormat.Rewarded), tokensEarned, claimedThisWin);
+            bool ready = block == AdBlock.None;
+            if (ready != lastDoubleTokensReady)
+            {
+                lastDoubleTokensReady = ready;
+                Log("rewarded_offer", AdFormat.Rewarded, placement, ready ? "shown" : "hidden reason=" + (block?.ToString() ?? "ShowInProgress"));
+            }
+            return ready;
+        }
+
         void PollRewarded()
         {
             bool ready = IsRewardedReady(config.hintPlacement);

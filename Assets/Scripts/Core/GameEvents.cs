@@ -15,6 +15,10 @@ namespace Snaploop.Core
         public bool IsFirstClear;
         /// <summary>True when the win was forced from the dev menu.</summary>
         public bool ForcedByDevMenu;
+        /// <summary>Best stars on this level before this clear (0 = first clear).</summary>
+        public int PreviousBest;
+        /// <summary>Tokens this clear added to the wallet (before any "Double tokens" bonus).</summary>
+        public int TokensEarned;
     }
 
     /// <summary>

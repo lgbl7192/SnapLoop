@@ -45,6 +45,38 @@ namespace Snaploop.Core
         void Share(PuzzleResult result);
     }
 
+    /// <summary>
+    /// Sells theme packs as non-consumable in-app products (monetization worker). Without one, packs that
+    /// have a product id show no Buy button and unlock with tokens only.
+    /// </summary>
+    public interface IPackStore
+    {
+        /// <summary>True when the player owns the product (granted locally, restored from the store on launch).</summary>
+        bool Owns(string productId);
+
+        /// <summary>Store price, or a placeholder until the store returns it.</summary>
+        string PriceLabel(string productId);
+
+        /// <summary>Runs the purchase flow. <paramref name="onDone"/> gets true when the product is owned afterwards.</summary>
+        void Buy(string productId, string title, Action<bool> onDone);
+    }
+
+    /// <summary>
+    /// The win card's optional rewarded "Double tokens" button (monetization worker). Without one, or while
+    /// <see cref="IsOffered"/> is false, the button is not shown at all.
+    /// </summary>
+    public interface IDoubleTokensOffer
+    {
+        /// <summary>
+        /// Whether to show the offer for a win that paid <paramref name="tokensEarned"/>. Call
+        /// <see cref="GameServices.NotifyRewardedOffersChanged"/> when this may have changed (an ad loaded, a cap was reached).
+        /// </summary>
+        bool IsOffered(int tokensEarned, bool claimedThisWin);
+
+        /// <summary>Plays the rewarded ad. <paramref name="onResult"/> gets true only if it was watched to the end.</summary>
+        void Request(Action<bool> onResult);
+    }
+
     /// <summary>An extra row in the Settings screen (e.g. "Remove Ads", "Restore Purchases").</summary>
     public sealed class SettingsEntry
     {
@@ -122,6 +154,22 @@ namespace Snaploop.Core
 
         /// <summary>Optional share provider. The win panel shows a Share button only when this is set and available.</summary>
         public static IShareProvider Share { get; set; }
+
+        /// <summary>Optional pack store. Packs are bought through it; null means packs unlock with tokens only.</summary>
+        public static IPackStore PackStore { get; set; }
+
+        /// <summary>Raised by <see cref="NotifyPacksChanged"/>: a pack was unlocked, bought, restored or locked again.</summary>
+        public static event Action PacksChanged;
+
+        public static void NotifyPacksChanged() => PacksChanged?.Invoke();
+
+        /// <summary>Optional rewarded "Double tokens" offer on the win card. Null hides it.</summary>
+        public static IDoubleTokensOffer DoubleTokens { get; set; }
+
+        /// <summary>Raised by <see cref="NotifyRewardedOffersChanged"/>; the win card re-reads <see cref="DoubleTokens"/>.</summary>
+        public static event Action RewardedOffersChanged;
+
+        public static void NotifyRewardedOffersChanged() => RewardedOffersChanged?.Invoke();
 
         public static readonly List<SettingsEntry> SettingsEntries = new List<SettingsEntry>();
 

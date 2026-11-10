@@ -93,8 +93,25 @@ namespace Snaploop.EditorTools
                 if (mb > 8) warnings.Add(l.id + ": clip is " + mb + " MB (aim for ~2-4 MB: 720x1280, 2-3 Mbps, 8-12 s).");
                 if (string.IsNullOrEmpty(l.credit)) warnings.Add(l.id + ": no credit.");
             }
+
+            // packs.json is optional (without it only the starter pack exists); a broken one is an error.
+            var packs = new List<PackInfo>();
+            string packsPath = Path.Combine(folder, PackCatalog.ManifestName);
+            if (File.Exists(packsPath))
+            {
+                if (!PackCatalog.TryParse(File.ReadAllText(packsPath), packs, warnings, out string packError))
+                {
+                    ok = false;
+                    sb.AppendLine("ERROR: " + packError);
+                }
+            }
+            else warnings.Add(PackCatalog.ManifestName + " not found: every level is in the starter pack.");
+            PackCatalog.Link(packs, levels, warnings);
+            foreach (var p in packs)
+                if (p.IsEmpty && !p.IsStarter) warnings.Add("pack " + p.id + " has no levels yet (shows as Coming soon).");
+
             foreach (var w in warnings) sb.AppendLine("Warning: " + w);
-            sb.Insert(0, levels.Count + " level(s) in levels.json" + (ok ? ", all clips present." : ".") + "\n");
+            sb.Insert(0, levels.Count + " level(s) in levels.json, " + packs.Count + " pack(s)" + (ok ? ", all clips present." : ".") + "\n");
             report = sb.ToString().TrimEnd();
             return ok;
         }

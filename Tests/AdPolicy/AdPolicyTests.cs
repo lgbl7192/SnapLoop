@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Snaploop.Core;
 using Snaploop.Monetization;
 
 namespace Snaploop.Monetization
@@ -56,10 +57,12 @@ static class AdPolicyTests
         RageQuitTests();
         InterstitialGateTests();
         RewardedGateTests();
+        DoubleTokensGateTests();
         BannerGateTests();
         SimulationTests();
         BackoffTests();
         ShowHandleTests();
+        TokenRulesTests();
         Console.WriteLine();
         Console.WriteLine(passes + " passed, " + failures + " failed");
         return failures == 0 ? 0 : 1;
@@ -75,7 +78,7 @@ static class AdPolicyTests
         var d = AdRuleSpecs.RestrictToDefaults(new AdRules(), log);
         Check(rejected.Count == 0, "defaults validate with no rejections");
         Check(AdRuleSpecs.All.All(s => s.Get(d) == s.Get(new AdRules())), "defaults unchanged by validation");
-        Eq(19, AdRuleSpecs.All.Length, "every AdRules field has a spec");
+        Eq(20, AdRuleSpecs.All.Length, "every AdRules field has a spec");
         Eq(AdRuleSpecs.All.Length, AdRuleSpecs.All.Select(s => s.Key).Distinct().Count(), "spec keys unique");
         Check(AdRuleSpecs.All.All(s => s.Get(new AdRules()) >= s.Min && s.Get(new AdRules()) <= s.Max), "defaults inside hard bounds");
 
@@ -311,6 +314,91 @@ static class AdPolicyTests
         Eq(AdBlock.NotLoaded, AdGate.Rewarded(c), "rewarded offer hidden while nothing is loaded");
     }
 
+    static void DoubleTokensGateTests()
+    {
+        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(Veteran()), 8, false), "double tokens: offered after a win that paid tokens");
+
+        var f = new AdLedger();
+        f.StartSession(T0, Day0, 24);
+        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(f), 5, false), "double tokens: available from the first session");
+
+        var c = Ctx(Veteran());
+        c.RemoveAdsOwned = true;
+        Eq(AdBlock.None, AdGate.DoubleTokens(c, 8, false), "double tokens: still offered after Remove Ads");
+
+        Eq(AdBlock.NothingToDouble, AdGate.DoubleTokens(Ctx(Veteran()), 0, false), "double tokens: hidden when the win paid nothing");
+        Eq(AdBlock.AlreadyClaimed, AdGate.DoubleTokens(Ctx(Veteran()), 8, true), "double tokens: once per win");
+
+        Eq(AdBlock.KillSwitch, AdGate.DoubleTokens(Ctx(Veteran(), new AdRules { doubleTokensEnabled = false }), 8, false), "double tokens: own kill switch");
+        Eq(AdBlock.KillSwitch, AdGate.DoubleTokens(Ctx(Veteran(), new AdRules { rewardedEnabled = false }), 8, false), "double tokens: rewarded kill switch also hides it");
+        c = Ctx(Veteran());
+        c.ConsentAllowsAds = false;
+        Eq(AdBlock.Consent, AdGate.DoubleTokens(c, 8, false), "double tokens: waits for consent");
+        c = Ctx(Veteran());
+        c.AdLoaded = false;
+        Eq(AdBlock.NotLoaded, AdGate.DoubleTokens(c, 8, false), "double tokens: hidden while nothing is loaded");
+
+        // One ledger for every rewarded placement: hints and double tokens draw on the same caps.
+        var shared = Veteran();
+        for (int i = 0; i < 7; i++) shared.RecordRewardedShown(T0 - 1000 + i, Day0);
+        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(shared), 8, false), "double tokens: 7 hint ads this session leave one slot");
+        shared.RecordRewardedShown(T0 - 500, Day0);
+        Eq(AdBlock.SessionCap, AdGate.DoubleTokens(Ctx(shared), 8, false), "double tokens: hint ads count toward the session cap of 8");
+        Eq(AdBlock.SessionCap, AdGate.Rewarded(Ctx(shared)), "a double-tokens ad counts toward the hint cap the same way");
+
+        var daily = Veteran();
+        daily.dailyRewarded = 19;
+        daily.sessionRewarded = 0;
+        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(daily), 8, false), "double tokens: 19 rewarded today leaves one");
+        daily.RecordRewardedShown(T0 - 10, Day0);
+        Eq(AdBlock.DailyCap, AdGate.DoubleTokens(Ctx(daily), 8, false), "double tokens: shares the daily cap of 20");
+        Eq(AdBlock.DailyCap, AdGate.Rewarded(Ctx(daily)), "hints see the double-tokens ad in the daily cap");
+
+        // The rewarded/interstitial spacing: watching double tokens on the win card holds back the interstitial on Next.
+        var spacing = Veteran();
+        spacing.RecordRewardedShown(T0, Day0);
+        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 5)), "Next right after double tokens: no interstitial");
+        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 89)), "89 s after double tokens: still no interstitial");
+        Eq(AdBlock.None, AdGate.Interstitial(Ctx(spacing, null, T0 + 90)), "90 s after double tokens: interstitials allowed again");
+
+        var stricter = AdRuleSpecs.Restrict(new AdRules(), s => s.Key == "ads_rewarded_double_tokens_enabled" ? 0 : (double?)null);
+        Check(!stricter.doubleTokensEnabled && stricter.rewardedEnabled, "remote can switch off double tokens alone");
+        var rejected = new List<string>();
+        var looser = AdRuleSpecs.Restrict(new AdRules { doubleTokensEnabled = false },
+            s => s.Key == "ads_rewarded_double_tokens_enabled" ? 1 : (double?)null, (k, v, why) => rejected.Add(k));
+        Check(!looser.doubleTokensEnabled && rejected.Contains("ads_rewarded_double_tokens_enabled"), "remote cannot turn double tokens back on");
+
+        // A player who chains wins and always takes the offer: never more than the shared caps, never an interstitial within 90 s of one.
+        var r = new AdRules();
+        var l = Veteran();
+        l.sessionRewarded = 0;
+        long now = T0;
+        int doubles = 0, inters = 0;
+        bool spacingViolated = false;
+        for (int win = 0; win < 30; win++)
+        {
+            now += 45;
+            l.RecordLevelEnd(true);
+            if (AdGate.DoubleTokens(Ctx(l, r, now), 8, false) == AdBlock.None)
+            {
+                l.RecordRewardedShown(now, Day0);
+                doubles++;
+                now += 30;
+            }
+            if (AdGate.Interstitial(Ctx(l, r, now)) == AdBlock.None)
+            {
+                if (l.lastRewardedAt > 0 && now - l.lastRewardedAt < r.interAfterRewardedSeconds) spacingViolated = true;
+                l.RecordInterstitialShown(now, Day0);
+                now += 15;
+                l.RecordInterstitialClosed(now);
+                inters++;
+            }
+        }
+        Eq(8, doubles, "simulation: a session of wins gets at most 8 double-tokens ads");
+        Check(!spacingViolated, "simulation: no interstitial within 90 s of a double-tokens ad");
+        Console.WriteLine("     (double-tokens simulation: " + doubles + " rewarded, " + inters + " interstitials over 30 wins)");
+    }
+
     static void BannerGateTests()
     {
         var l = Veteran();
@@ -417,5 +505,32 @@ static class AdPolicyTests
         var f = new AdShowHandle();
         f.Failed(null);
         Eq("show failed", f.Error, "show handle: failure without a message");
+    }
+
+    // ------------------------------------------------------------ tokens and packs
+
+    static void TokenRulesTests()
+    {
+        Check(TokenRules.ForStars(1) == 5 && TokenRules.ForStars(2) == 8 && TokenRules.ForStars(3) == 10, "tokens: 1/2/3 stars pay 5/8/10");
+        Eq(0, TokenRules.ForStars(0), "tokens: not cleared pays nothing");
+        Eq(10, TokenRules.ForStars(4), "tokens: stars above 3 pay like 3");
+        Eq(8, TokenRules.ForClear(0, 2), "tokens: first clear with 2 stars pays 8");
+        Eq(2, TokenRules.ForClear(2, 3), "tokens: improving 2 to 3 stars pays the difference");
+        Eq(5, TokenRules.ForClear(1, 3), "tokens: improving 1 to 3 stars pays the difference");
+        Eq(0, TokenRules.ForClear(3, 3), "tokens: replay at the same stars pays nothing");
+        Eq(0, TokenRules.ForClear(3, 1), "tokens: replay at fewer stars pays nothing");
+        int total = TokenRules.ForClear(0, 1) + TokenRules.ForClear(1, 2) + TokenRules.ForClear(2, 3);
+        Eq(10, total, "tokens: 1 then 2 then 3 stars adds up to the 3-star payout");
+        Eq(16, 8 + TokenRules.DoubledBonus(8), "tokens: doubling an 8-token clear gives 16");
+        Eq(0, TokenRules.DoubledBonus(0), "tokens: doubling nothing gives nothing");
+
+        Check(Math.Abs(TokenRules.UnlockProgress(75, 150) - 0.5f) < 1e-6, "unlock progress: halfway");
+        Eq(1f, TokenRules.UnlockProgress(400, 150), "unlock progress: capped at 1");
+        Eq(0f, TokenRules.UnlockProgress(-5, 150), "unlock progress: never negative");
+        Eq(1f, TokenRules.UnlockProgress(0, 0), "unlock progress: a free pack is complete");
+
+        Check(PackRules.IsFeatured(new[] { 11, 12 }, 12) && PackRules.IsFeatured(new[] { 11, 12 }, 11), "seasonal: featured in its months");
+        Check(!PackRules.IsFeatured(new[] { 11, 12 }, 1), "seasonal: not featured outside them");
+        Check(!PackRules.IsFeatured(null, 12) && !PackRules.IsFeatured(new int[0], 12), "seasonal: no months means never featured");
     }
 }

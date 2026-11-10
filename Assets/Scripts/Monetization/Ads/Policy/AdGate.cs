@@ -21,6 +21,8 @@ namespace Snaploop.Monetization
         NotOnBannerScreen,
         BannerGraceDays,
         BannerGraceSessions,
+        NothingToDouble,
+        AlreadyClaimed,
     }
 
     /// <summary>Every input the gates read, passed in so the rules stay pure and testable.</summary>
@@ -82,6 +84,21 @@ namespace Snaploop.Monetization
             if (!c.ConsentAllowsAds) return AdBlock.Consent;
             if (!c.AdLoaded) return AdBlock.NotLoaded;
             return AdBlock.None;
+        }
+
+        /// <summary>
+        /// The win card's "Double tokens" offer: one rewarded slot per win, only when the win paid tokens.
+        /// It is an ordinary rewarded ad underneath, so the session and daily caps are shared with hints,
+        /// and the interstitial cooldown after a rewarded ad (<see cref="AdRules.interAfterRewardedSeconds"/>)
+        /// applies to the Next tap that follows it.
+        /// </summary>
+        public static AdBlock DoubleTokens(in AdGateContext c, int tokensEarned, bool claimedThisWin)
+        {
+            var r = c.Rules;
+            if (!r.rewardedEnabled || !r.doubleTokensEnabled) return AdBlock.KillSwitch;
+            if (tokensEarned <= 0) return AdBlock.NothingToDouble;
+            if (claimedThisWin) return AdBlock.AlreadyClaimed;
+            return Rewarded(c);
         }
 
         /// <summary>Whether a banner may be requested and shown. "Loaded" is not a gate: an unloaded banner just takes no space.</summary>

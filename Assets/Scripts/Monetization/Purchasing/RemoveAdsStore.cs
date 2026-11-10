@@ -1,87 +1,36 @@
 using Snaploop.Core;
-using UnityEngine;
 
 namespace Snaploop.Monetization
 {
     /// <summary>
-    /// The Remove Ads product: Settings rows, purchase and restore flows, entitlement grant.
-    /// It removes interstitials and banners; rewarded hint ads stay available because the player opts in.
+    /// The Remove Ads product and its Settings rows. It removes interstitials and banners; rewarded ads
+    /// (hints, double tokens) stay available because the player opts in. It does not unlock theme packs.
     /// </summary>
     public sealed class RemoveAdsStore
     {
         readonly MonetizationConfig config;
-        readonly MonetizationOverlay overlay;
-        bool busy;
+        readonly PurchaseService purchases;
 
-        public IPurchaseBackend Backend { get; }
-
-        public RemoveAdsStore(MonetizationConfig config, IPurchaseBackend backend, MonetizationOverlay overlay)
+        public RemoveAdsStore(MonetizationConfig config, PurchaseService purchases)
         {
             this.config = config;
-            this.overlay = overlay;
-            Backend = backend;
-            Backend.OwnershipFound += Grant;
+            this.purchases = purchases;
+            purchases.Register(new StoreProduct { Id = config.removeAdsProductId, Title = "Remove Ads", FallbackPrice = config.removeAdsFallbackPrice });
         }
 
-        public void Initialize()
+        public void AddSettingsRows()
         {
-            Backend.Initialize(config.removeAdsProductId);
             SettingsEntry buy = null;
             // Settings reads Label right after IsVisible, so this is where the store price gets picked up.
             buy = new SettingsEntry { Label = BuyLabel, OnClick = Buy, IsVisible = () => { buy.Label = BuyLabel; return !Entitlements.RemoveAds; } };
             GameServices.SettingsEntries.Add(buy);
-            GameServices.AddSettingsEntry("Restore Purchases", Restore, () => !Entitlements.RemoveAds);
+            purchases.AddRestoreRow();
             GameServices.AddSettingsEntry("Ads removed. Thank you!", null, () => Entitlements.RemoveAds);
         }
 
-        string BuyLabel => "Remove Ads - " + (Backend.LocalizedPrice ?? config.removeAdsFallbackPrice);
+        string BuyLabel => "Remove Ads - " + purchases.PriceLabel(config.removeAdsProductId);
 
-        static void Grant()
-        {
-            if (Entitlements.RemoveAds) return;
-            Entitlements.RemoveAds = true;
-            Debug.Log("[Monetization] Remove Ads granted.");
-        }
-
-        void Buy()
-        {
-            if (busy || Entitlements.RemoveAds) return;
-            busy = true;
-            overlay.ShowBusy("Contacting the store…");
-            Backend.Purchase((outcome, message) =>
-            {
-                busy = false;
-                overlay.HideBusy();
-                switch (outcome)
-                {
-                    case PurchaseOutcome.Purchased:
-                        overlay.Toast("Thank you! No more ads between puzzles or banners. Hint ads stay optional.", 4f);
-                        break;
-                    case PurchaseOutcome.AlreadyOwned:
-                        overlay.Toast(Entitlements.RemoveAds ? "You already own Remove Ads." : "You already own this. Restoring…");
-                        break;
-                    case PurchaseOutcome.Cancelled:
-                        break;
-                    default:
-                        overlay.Toast(message ?? "The purchase didn't go through.");
-                        break;
-                }
-                GameServices.NotifySettingsChanged();
-            });
-        }
-
-        void Restore()
-        {
-            if (busy) return;
-            busy = true;
-            overlay.ShowBusy("Restoring purchases…");
-            Backend.Restore((found, message) =>
-            {
-                busy = false;
-                overlay.HideBusy();
-                overlay.Toast(found ? "Remove Ads restored." : message ?? "No purchases to restore on this account.");
-                GameServices.NotifySettingsChanged();
-            });
-        }
+        void Buy() =>
+            purchases.Buy(config.removeAdsProductId, "Thank you! No more ads between puzzles or banners. Rewarded ads stay optional.", null);
     }
 }

@@ -1,0 +1,44 @@
+{
+  "packs": [
+    {
+      "id": "starter",
+      "title": "Starter",
+      "tokenCost": 0,
+      "productId": null,
+      "featuredMonths": [],
+      "cover": "shoreline-sunset"
+    },
+    {
+      "id": "sealife",
+      "title": "Sea Life",
+      "tokenCost": 150,
+      "productId": "com.snaploop.game.pack.sealife",
+      "featuredMonths": [],
+      "cover": "sea-turtle"
+    },
+    {
+      "id": "animals",
+      "title": "Animals",
+      "tokenCost": 150,
+      "productId": "com.snaploop.game.pack.animals",
+      "featuredMonths": [],
+      "cover": "red-panda"
+    },
+    {
+      "id": "space",
+      "title": "Space",
+      "tokenCost": 150,
+      "productId": "com.snaploop.game.pack.space",
+      "featuredMonths": [],
+      "cover": "cloud-bands"
+    },
+    {
+      "id": "christmas",
+      "title": "Christmas",
+      "tokenCost": 150,
+      "productId": "com.snaploop.game.pack.christmas",
+      "featuredMonths": [11, 12],
+      "cover": "snowflake-bauble"
+    }
+  ]
+}

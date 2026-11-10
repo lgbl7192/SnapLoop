@@ -37,27 +37,32 @@ namespace Snaploop.Levels
             return path.Contains("://") ? path : "file://" + path;
         }
 
-        public static IEnumerator Load(Action onDone)
+        /// <summary>Reads a text file from StreamingAssets/Levels. Calls <paramref name="onDone"/> with (text, null) or (null, error).</summary>
+        public static IEnumerator ReadText(string fileName, Action<string, string> onDone)
         {
-            levels.Clear();
-            LoadError = null;
-            string json = null;
-            string path = GetLevelFilePath(ManifestName);
-
+            string path = GetLevelFilePath(fileName);
             if (path.Contains("://"))
             {
                 using (var req = UnityWebRequest.Get(path))
                 {
                     yield return req.SendWebRequest();
-                    if (req.result == UnityWebRequest.Result.Success) json = req.downloadHandler.text;
-                    else LoadError = "Could not read " + ManifestName + ": " + req.error;
+                    if (req.result == UnityWebRequest.Result.Success) onDone(req.downloadHandler.text, null);
+                    else onDone(null, "Could not read " + fileName + ": " + req.error);
                 }
+                yield break;
             }
-            else
-            {
-                try { json = File.ReadAllText(path); }
-                catch (Exception e) { LoadError = "Could not read " + ManifestName + ": " + e.Message; }
-            }
+            string text = null, error = null;
+            try { text = File.ReadAllText(path); }
+            catch (Exception e) { error = "Could not read " + fileName + ": " + e.Message; }
+            onDone(text, error);
+        }
+
+        public static IEnumerator Load(Action onDone)
+        {
+            levels.Clear();
+            LoadError = null;
+            string json = null;
+            yield return ReadText(ManifestName, (text, error) => { json = text; LoadError = error; });
 
             if (json != null)
             {
@@ -85,6 +90,7 @@ namespace Snaploop.Levels
             }
 
             var seen = new HashSet<string>();
+            var perPack = new Dictionary<string, int>();
             for (int i = 0; i < manifest.levels.Length; i++)
             {
                 var l = manifest.levels[i];
@@ -101,6 +107,10 @@ namespace Snaploop.Levels
                 }
 
                 l.Index = target.Count;
+                l.PackId = string.IsNullOrWhiteSpace(l.pack) ? PackInfo.StarterId : l.pack.Trim();
+                perPack.TryGetValue(l.PackId, out int packIndex);
+                l.PackIndex = packIndex;
+                perPack[l.PackId] = packIndex + 1;
                 if (l.cols >= DifficultyRamp.MinSide && l.rows >= DifficultyRamp.MinSide)
                 {
                     l.Cols = Mathf.Min(l.cols, DifficultyRamp.MaxSide);
@@ -110,7 +120,7 @@ namespace Snaploop.Levels
                 }
                 else
                 {
-                    var g = DifficultyRamp.ForIndex(l.Index);
+                    var g = DifficultyRamp.ForIndex(l.PackIndex);
                     l.Cols = g.x;
                     l.Rows = g.y;
                     if (l.cols != 0 || l.rows != 0)
