@@ -30,7 +30,7 @@ namespace Snaploop.Puzzle
     /// </summary>
     public sealed class PuzzleBoard : MonoBehaviour
     {
-        enum State { Idle, Loading, Intro, Scrambling, Playing, Settling, Reveal, Done }
+        enum State { Idle, Loading, Scrambling, Playing, Settling, Reveal, Done }
 
         // Tuning (fractions of the shorter cell side unless noted).
         const float SnapRadius = 0.3f;
@@ -45,10 +45,9 @@ namespace Snaploop.Puzzle
         const float LiftScale = 1.05f;
         const float SnapTweenSec = 0.11f;
         const float HintTweenSec = 0.45f;
+        const float ScrambleTweenSec = 0.01f; // scramble is applied at once (FinishScrambleNow)
         const float SlideTweenSec = 0.12f;
         const float FlashSec = 0.45f;
-        const float IntroHoldSec = 0.75f;
-        const float ScrambleTweenSec = 0.55f;
         const float RevealGrowSec = 0.6f;
         const float RevealHoldSec = 1.1f;
         const byte GhostAmount = 30; // 0-255 video strength in empty slots
@@ -215,10 +214,10 @@ namespace Snaploop.Puzzle
                 if (token != loadToken) return;
                 material.mainTexture = feed.Texture;
                 BuildLevel(feed.Aspect);
-                state = State.Intro;
-                stateTime = 0f;
                 fade = 0f;
                 SetVisible(true);
+                StartScramble();
+                FinishScrambleNow();
                 GameContext.IsPuzzleInProgress = true;
                 LevelReady?.Invoke(ok);
                 ProgressChanged?.Invoke(placedCount, tiles.Count);
@@ -352,9 +351,6 @@ namespace Snaploop.Puzzle
 
             switch (state)
             {
-                case State.Intro:
-                    if (stateTime >= IntroHoldSec) StartScramble();
-                    break;
                 case State.Playing:
                     if (InputEnabled) elapsed += dt;
                     HandleInput();
@@ -484,6 +480,21 @@ namespace Snaploop.Puzzle
             joinPending = true;
             state = State.Scrambling;
             stateTime = 0f;
+        }
+
+        // Levels open already scrambled: jump every tile to its scrambled place instead of animating the deal.
+        void FinishScrambleNow()
+        {
+            for (int g = 0; g < offset.Length; g++)
+            {
+                if (!tweening[g]) continue;
+                offset[g] = tweenTo[g];
+                tweening[g] = false;
+                dirty[g] = true;
+            }
+            state = State.Playing;
+            stateTime = 0f;
+            GameEvents.RaisePuzzlePlayable(level, level.Index);
         }
 
         // World offset of a group whose tiles sit in their SwapGrid cells.
@@ -1059,7 +1070,7 @@ namespace Snaploop.Puzzle
         /// <summary>Dev/recording: sends every loose tile home and completes the puzzle.</summary>
         public void ForceWin()
         {
-            if (state == State.Intro || state == State.Scrambling)
+            if (state == State.Scrambling)
             {
                 for (int g = 0; g < tweening.Length; g++) tweening[g] = false;
                 state = State.Playing;
