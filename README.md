@@ -12,7 +12,7 @@ Android-first video puzzle built in Unity. Every tile is a live window onto one 
 | --- | --- |
 | `Assets/Scenes/Main.unity` | The only scene: a camera and the `SnaploopApp` component. All UI is built in code. |
 | `Assets/Scripts/App/SnaploopApp.cs` | Composition root and screen flow (splash, level select, puzzle, win, next). |
-| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (free drag, snap, magnetism, scramble, hint, reveal), `TileBatch` (all tiles as one mesh), `TileGroups` (which tiles are joined). `JigsawShape` and `Triangulator` are the older tab-shaped cut, kept for reuse. |
+| `Assets/Scripts/Puzzle/` | `PuzzleBoard` (grid-swap play, the free-drag dev mode, scramble, hint, reveal), `SwapGrid` (grid-swap rules: which tile sits in which cell), `TileBatch` (all tiles as one mesh), `TileGroups` (which tiles are joined). `JigsawShape` and `Triangulator` are the older tab-shaped cut, kept for reuse. See [Grid swap rules](#grid-swap-rules). |
 | `Assets/Scripts/Video/VideoFeed.cs` | The single `VideoPlayer` writing into one shared `RenderTexture`. |
 | `Assets/Scripts/Levels/` | `levels.json` and `packs.json` loaders (`LevelCatalog`, `PackCatalog`) and the difficulty ramp. |
 | `Assets/Scripts/Core/` | Events, service hooks, settings/progress, tokens and pack access (`Packs.cs`, `EconomyRules.cs`), haptics, generated sound effects. |
@@ -22,6 +22,7 @@ Android-first video puzzle built in Unity. Every tile is a live window onto one 
 | `Assets/Scripts/Monetization/` | Ads (rewarded hints and Double tokens, interstitials on Next, level-select banner, the gating rules, test and LevelPlay adapters), consent and remote-config seams, and the Remove Ads and theme pack purchases. See [Monetization](#monetization-ads-and-remove-ads). |
 | `Assets/Resources/Monetization/MonetizationConfig.asset` | Every ad and IAP id and every ad rule number. |
 | `Tests/AdPolicy/` | Plain .NET unit tests for the ad rules and the token rules (no Unity needed). |
+| `Tests/Puzzle/` | Plain .NET unit tests for the grid-swap rules, scramble and hints (`dotnet run --project Tests/Puzzle`). |
 | `Assets/Resources/Shaders/SnaploopVideoPiece.shader` | The one shader every piece uses. |
 | `Assets/Resources/Shaders/SnaploopVideoTile.shader` | The puzzle's tile shader: rounded tiles, gaps and outlines drawn per pixel from edge flags, so a joined group shows one outer outline. `SnaploopVideoPiece` above is the older jigsaw-piece shader. |
 | `Assets/StreamingAssets/Levels/` | Clips, optional thumbnails, `levels.json` and `packs.json`. |
@@ -56,8 +57,9 @@ Android-first video puzzle built in Unity. Every tile is a live window onto one 
 
    - `pack` (optional) puts the level in a theme pack, e.g. `"pack": "sealife"`. Without it the level is in the free `starter` pack. See [Theme packs and tokens](#theme-packs-and-tokens).
 
-   - `cols` x `rows` sets difficulty. Use portrait grids (rows >= cols) so pieces stay roughly square on 9:16 clips: 3x3, 3x4, 3x5 early, then 4x5, 4x6, 4x7, up to about 36 pieces (4x9 or 5x7). The maximum is 10 per side.
-   - If `cols`/`rows` are missing, the game picks a size from its ramp based on the level's position in its pack.
+   - `cols` x `rows` sets difficulty. Use portrait grids (rows >= cols) so tiles stay close to square on 9:16 clips. The maximum is 10 per side.
+   - Pace it as a sawtooth, not a steady climb: about four levels that climb, then an easy "breather" on every 5th level, and a smaller grid straight after a big one (for example 25 after 36). Grid swapping is easier than free drag, so the late starter levels go up to 6x7 (42) and 6x8 (48). The starter pack runs 9 → 25 by level 9, first 36 at level 13, first 48 at level 24.
+   - If `cols`/`rows` are missing, the game picks a size from the same sawtooth (`DifficultyRamp`) based on the level's position in its pack.
    - `credit` is shown on the win card.
 5. Run **Snaploop > Validate Levels** in the Editor. It checks `levels.json` and `packs.json`, flags missing clips, warns about oversized files, and lists levels whose `pack` isn't in `packs.json` and packs that have no levels yet.
 
@@ -65,7 +67,7 @@ Progress is stored per level `id`, so you can reorder levels without losing star
 
 ## Theme packs and tokens
 
-Puzzles come in theme packs. The 30 original levels are the free **Starter** pack. **Sea Life**, **Animals**, **Space** and **Christmas** are listed in `packs.json` and are planned at 10 clips each, ramping from 9 to about 36 pieces. Until their clips land they show as **Coming soon**. A locked pack opens with tokens the player earns or with a one-time purchase.
+Puzzles come in theme packs. The 30 original levels are the free **Starter** pack. **Sea Life**, **Animals**, **Space** and **Christmas** are listed in `packs.json` and are planned at 10 clips each, on a sawtooth from 12 to 48 pieces (3x4, 4x4, 4x5, 5x6, 4x4, 5x6, 6x6, 5x5, 6x7, 6x8). Until their clips land they show as **Coming soon**. A locked pack opens with tokens the player earns or with a one-time purchase.
 
 **Hub and pack screen:**
 
@@ -89,7 +91,7 @@ Puzzles come in theme packs. The 30 original levels are the free **Starter** pac
 
 No code change is needed:
 
-1. Add the clips (and optional thumbnails) as in [Add a video level](#add-a-video-level), and give each new entry in `levels.json` `"pack": "<id>"`. Order within the pack follows the order in `levels.json`. Ramp the grids from 3x3 (9 pieces) to about 36.
+1. Add the clips (and optional thumbnails) as in [Add a video level](#add-a-video-level), and give each new entry in `levels.json` `"pack": "<id>"`. Order within the pack follows the order in `levels.json`. Pace the grids as a sawtooth (see [Add a video level](#add-a-video-level)).
 2. Add one entry to `Assets/StreamingAssets/Levels/packs.json`:
 
    ```json
@@ -119,9 +121,23 @@ Project-side settings are committed in `ProjectSettings/`: Snaploop name, portra
 ## Playing and testing
 
 - First launch goes straight into level 1 with a one-screen onboarding ("Assemble the moving picture").
+- Play is grid swapping (see [Grid swap rules](#grid-swap-rules)). The old free-drag movement is still there for comparison: dev menu, **Movement: grid swap / free drag**, which applies from the next level.
 - Levels unlock in order within each pack (see [Theme packs and tokens](#theme-packs-and-tokens)). Stars: 3, minus 1 if any hint was used, minus 1 if slower than par (6 s per piece). The minimum is 1.
 - Android back button: closes a dialog, otherwise returns to level select, otherwise sends the app to the background.
 - **Dev menu**: tap the "Snaploop" wordmark on level select 5 times (works in release builds), or use the **DEV** button in development builds. It has: Win now (finishes the current puzzle, handy for recording reveals), jump to any level, unlock all, reset progress, show onboarding again, FPS counter. In the Editor and development builds it also has the monetization toggles listed under [Monetization](#monetization-ads-and-remove-ads), plus pack rows: **Tokens: N (tap: +100)**, **Reset tokens to 0**, **Packs: X/Y unlocked (tap: unlock all / lock all)** (token unlocks only; purchases are untouched) and **Season month: device / N (tap to change)** to try seasonal badges. These pack rows are not registered in release builds.
+
+## Grid swap rules
+
+`SwapGrid` holds the rules (plain C#, unit tests in `Tests/Puzzle/`); `PuzzleBoard` animates them.
+
+- **Board.** Every tile sits in one grid cell and every cell holds one tile, so the board is always a tidy, full grid and the whole video stays visible.
+- **Scramble.** Tiles are dealt straight onto cells with no jitter: one random cycle, so no tile starts in its own cell, re-rolled until no two picture neighbours start side by side. A puzzle never starts partly solved.
+- **Drag and drop.** Lifting a tile or group shows its empty cells underneath. On release it snaps instantly to the nearest cells that keep it on the board. The tiles it covers slide (0.12 s) into the cells it left: each covered tile moves against the drag direction until it reaches a vacated cell, so a single tile is a plain swap and a group dragged one row up lets the covered row drop into the row it left. There is no magnetism and no wrong drop: every drop inside the board is accepted.
+- **Joining.** After the slides land, every pair of picture neighbours that now sits side by side joins, wherever it is on the board. The new group gets one outline (inner borders disappear) and a white outline flash, plus the snap sound, haptic tick, pop and burst. Groups drag as one.
+- **No locking.** As in the reference game, nothing locks, not even tiles at home, so a big assembled area can be dragged into place. A moved group never breaks. Dropping onto part of another group pulls just the covered tiles out of it; the rest stays joined. Without that, some boards reach a state where no group can be put in place without breaking another, and a "refuse the drop" rule would leave the player (and the hint) stuck.
+- **Progress ring.** Counts tiles joined to at least one neighbour; it reaches the total only when the picture is one piece.
+- **Hint.** Swaps one loose tile into its home cell: a single tile whose move splits no group if there is one, otherwise the smallest such group, otherwise the smallest move. It always succeeds while the puzzle is unsolved.
+- **Win clip.** `ClipScene` replays a solve the same way: a tidy scrambled grid, solved one swap at a time.
 
 ## UI look and screenshots
 
@@ -314,7 +330,7 @@ After a win, Snaploop can export a 9:16 MP4 of the puzzle: the scrambled pieces 
 
 The clip is a deterministic replay, not a screen recording. `ClipCapture` (an `IShareProvider` installed before the first scene loads) builds a `ClipJob` from the win's `PuzzleResult`:
 
-1. `ClipScene` rebuilds the puzzle's tile grid with the game's own `TileBatch`, `TileGroups` and `Snaploop/VideoTile` shader in a 720x1280 layout. Tiles join into one outlined shape as they land, just like in play. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
+1. `ClipScene` rebuilds the puzzle's tile grid with the game's own `TileBatch`, `TileGroups` and `Snaploop/VideoTile` shader in a 720x1280 layout. It starts from a grid-swap scramble and solves it one swap at a time (a tile lifts into its cell, the tile there slides into the cell it left). Tiles join into one outlined shape as they land home. Each output frame is drawn with one `CommandBuffer` into an offscreen `RenderTexture`. Nothing is drawn by the game cameras, and the on-screen game is never read.
 2. `ClipVideoSource` opens the level's clip in a second, paused `VideoPlayer` and steps it one frame per output frame, so the moving picture in the clip is smooth however slow encoding is. If stepping isn't supported or stalls, it falls back to the game's live video texture.
 3. Frames are read back with `AsyncGPUReadback` (falling back to `ReadPixels`) and handed to a sink:
    - **Android:** `ClipEncoder.java` uploads each RGBA frame as a texture to a private EGL context whose surface is the input of a hardware `MediaCodec` H.264 encoder, then muxes with `MediaMuxer`. The frame buffer goes from C# to Java as a direct `ByteBuffer`, with no copy into the Java heap.

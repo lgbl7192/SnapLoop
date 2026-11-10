@@ -9,9 +9,9 @@ using UnityEngine.Rendering;
 namespace Snaploop.Capture
 {
     /// <summary>
-    /// Deterministic replay of a solved puzzle for the share clip: scrambled tiles fly into their
-    /// slots over the moving video and join into one shape, the board grows into the full uncut loop,
-    /// then a Snaploop end card.
+    /// Deterministic replay of a solved puzzle for the share clip: the scrambled grid is solved one swap at a
+    /// time (a tile lifts into its cell, the tile there slides into the cell it left), landed tiles join into
+    /// one shape, the board grows into the full uncut loop, then a Snaploop end card.
     ///
     /// Drawn offscreen with a CommandBuffer into a RenderTexture: no camera, no scene objects, nothing
     /// the game camera can see. Frame n always looks the same, so the clip can be rendered at whatever
@@ -29,6 +29,7 @@ namespace Snaploop.Capture
         const float AssemblySec = 4.2f;
         const float MinSnapGapSec = 0.1f, MaxSnapGapSec = 0.42f;
         const float FlightSec = 0.42f;
+        const float SlideSec = 0.24f;
         const float SettleSec = 0.3f;
         const float RevealGrowSec = 0.6f;
         const float RevealFlashSec = 0.45f;
@@ -39,7 +40,7 @@ namespace Snaploop.Capture
 
         // Tile look, fractions of the shorter cell side (same as PuzzleBoard).
         const float CornerRadius = 0.07f, GapWidth = 0.06f, OutlineWidth = 0.025f;
-        const float ScrambleJitter = 0.18f, ScrambleSpread = 1.1f, LiftScale = 0.08f;
+        const float LiftScale = 0.08f;
 
         // Layout, fractions of the output frame.
         const float TopBand = 0.17f, BottomBand = 0.12f, SideMargin = 0.06f;
@@ -67,17 +68,21 @@ namespace Snaploop.Capture
         readonly List<MaterialPropertyBlock> blocks = new List<MaterialPropertyBlock>();
         int blockIndex;
 
-        readonly TileBatch tiles = new TileBatch("ClipTiles");
-        readonly TileBatch slots = new TileBatch("ClipSlots");
+        readonly TileBatch tiles, slots;
         readonly TileGroups groups = new TileGroups();
         readonly Mesh revealMesh, quadMesh, topBandMesh, bottomBandMesh;
 
         // Per tile.
-        Vector2[] from;
-        float[] start;
+        int[] startCell;
+        float[] landAt;
         bool[] landed;
-        int[] byStart, byStack, drawOrder;
+        int[] byLanding, drawOrder, layer;
         int joinedCount = -1;
+
+        // Per swap step: the mover lifts from its cell into its home cell, the tile there slides back.
+        int[] stepMover, stepMoverFrom, stepPushed;
+        float[] stepStart;
+        int stepCount;
 
         Rect boardRect, coverRect;
         readonly float revealAt, endAt;
@@ -104,6 +109,8 @@ namespace Snaploop.Capture
             tileMat = new Material(tileShader) { name = "ClipTiles" };
             tileMat.SetFloat(FadeId, 1f);
             overlayMat = new Material(overlayShader) { name = "ClipOverlay" };
+            tiles = new TileBatch("ClipTiles");
+            slots = new TileBatch("ClipSlots");
 
             revealMesh = BuildRevealQuad();
             quadMesh = BuildQuad(new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255));
@@ -112,10 +119,10 @@ namespace Snaploop.Capture
 
             BuildPuzzle(Mathf.Clamp(videoAspect, 0.3f, 3f));
 
-            int n = tiles.Count;
-            float gap = Mathf.Clamp(AssemblySec / n, MinSnapGapSec, MaxSnapGapSec);
-            for (int k = 0; k < n; k++) start[byStart[k]] = IntroHoldSec + k * gap;
-            revealAt = IntroHoldSec + (n - 1) * gap + FlightSec + SettleSec;
+            float gap = Mathf.Clamp(AssemblySec / Mathf.Max(1, stepCount), MinSnapGapSec, MaxSnapGapSec);
+            for (int k = 0; k < stepCount; k++) stepStart[k] = IntroHoldSec + k * gap;
+            PlanLandings();
+            revealAt = IntroHoldSec + Mathf.Max(0, stepCount - 1) * gap + FlightSec + SettleSec;
             endAt = revealAt + RevealGrowSec + RevealHoldSec;
             FrameCount = Mathf.CeilToInt((endAt + EndCardSec) * Fps);
 
@@ -197,9 +204,9 @@ namespace Snaploop.Capture
 
         int LandedCount(float t)
         {
-            // Start times rise along byStart, so the landed tiles are always a prefix of it.
+            // byLanding is sorted by landing time, so the landed tiles are always a prefix of it.
             int k = 0;
-            while (k < byStart.Length && t >= start[byStart[k]] + FlightSec) k++;
+            while (k < byLanding.Length && t >= landAt[byLanding[k]]) k++;
             return k;
         }
 
@@ -209,24 +216,31 @@ namespace Snaploop.Capture
             int landedCount = LandedCount(t);
             UpdateJoins(landedCount);
 
+            // Replay the swaps that have started; later steps override earlier ones for the same tile.
             for (int i = 0; i < n; i++)
             {
-                float f = (t - start[i]) / FlightSec;
-                Vector2 home = tiles.HomeOf(i);
-                if (f <= 0f) tiles.SetTile(i, from[i], 1f);
-                else if (f < 1f)
-                {
-                    float e = 1f - (1f - f) * (1f - f) * (1f - f);
-                    tiles.SetTile(i, Vector2.LerpUnclamped(from[i], home, e), 1f + LiftScale * Mathf.Sin(f * Mathf.PI));
-                }
-                else tiles.SetTile(i, home, 1f);
+                tiles.SetTile(i, tiles.HomeOf(startCell[i]), 1f);
+                layer[i] = 1;
             }
+            for (int k = 0; k < stepCount && t > stepStart[k]; k++)
+            {
+                int m = stepMover[k], p = stepPushed[k];
+                Vector2 a = tiles.HomeOf(stepMoverFrom[k]), b = tiles.HomeOf(m);
+                float f = Mathf.Clamp01((t - stepStart[k]) / FlightSec);
+                float e = 1f - (1f - f) * (1f - f) * (1f - f);
+                tiles.SetTile(m, Vector2.LerpUnclamped(a, b, e), 1f + LiftScale * Mathf.Sin(f * Mathf.PI));
+                layer[m] = f < 1f ? 3 : 1;
+                float sf = Mathf.Clamp01((t - stepStart[k] - FlightSec * 0.5f) / SlideSec);
+                tiles.SetTile(p, Vector2.Lerp(b, a, sf), 1f);
+                layer[p] = sf > 0f && sf < 1f ? 2 : 1;
+            }
+            for (int k = 0; k < landedCount; k++) layer[byLanding[k]] = 0;
 
-            // Landed tiles at the back, then the loose stack, then tiles in flight (latest on top).
+            // Landed tiles at the back, then resting tiles, then sliding tiles, then the lifted one on top.
             int w = 0;
-            for (int k = 0; k < landedCount; k++) drawOrder[w++] = byStart[k];
-            foreach (int i in byStack) if (t <= start[i]) drawOrder[w++] = i;
-            for (int k = landedCount; k < n; k++) if (t > start[byStart[k]]) drawOrder[w++] = byStart[k];
+            for (int l = 0; l <= 3; l++)
+                for (int i = 0; i < n; i++)
+                    if (layer[i] == l) drawOrder[w++] = i;
             tiles.SetDrawOrder(drawOrder);
             tiles.Flush();
 
@@ -242,10 +256,10 @@ namespace Snaploop.Capture
             int n = tiles.Count;
             groups.Reset(level.Cols, level.Rows);
             for (int i = 0; i < n; i++) landed[i] = false;
-            for (int k = 0; k < landedCount; k++) landed[byStart[k]] = true;
+            for (int k = 0; k < landedCount; k++) landed[byLanding[k]] = true;
             for (int k = 0; k < landedCount; k++)
             {
-                int i = byStart[k];
+                int i = byLanding[k];
                 for (int s = 0; s < 4; s++)
                 {
                     int nb = groups.Neighbor(i, (TileGroups.Side)s);
@@ -378,40 +392,73 @@ namespace Snaploop.Capture
             slots.Flush();
             groups.Reset(cols, rows);
 
-            from = new Vector2[n];
-            start = new float[n];
+            startCell = new int[n];
+            landAt = new float[n];
             landed = new bool[n];
             drawOrder = new int[n];
-            Scramble(new System.Random(unchecked(level.Index * 7919 + cols * 131 + rows)), cell);
+            layer = new int[n];
+            stepMover = new int[n];
+            stepMoverFrom = new int[n];
+            stepPushed = new int[n];
+            stepStart = new float[n];
+            PlanSwaps(new System.Random(unchecked(level.Index * 7919 + cols * 131 + rows)));
         }
 
-        /// <summary>Every tile starts on another tile's slot (one random cycle), loosely spread over the board.</summary>
-        void Scramble(System.Random rng, Vector2 cell)
+        /// <summary>
+        /// Scrambles onto cells like the game (no tile home, no neighbours joined), then plans one swap per step in
+        /// a random order: the mover goes to its home cell and the tile there takes the mover's old cell.
+        /// </summary>
+        void PlanSwaps(System.Random rng)
+        {
+            int n = tiles.Count, cols = level.Cols, rows = level.Rows;
+            SwapGrid.Scramble(cols, rows, rng, startCell);
+            var cellOf = (int[])startCell.Clone();
+            var tileAt = new int[n];
+            for (int i = 0; i < n; i++) tileAt[cellOf[i]] = i;
+
+            // A tile still sliding from a recent step should not move again yet, or it would jump.
+            int rest = Mathf.CeilToInt((FlightSec * 0.5f + SlideSec) / MinSnapGapSec);
+            var lastTouched = new int[n];
+            for (int i = 0; i < n; i++) lastTouched[i] = -rest;
+            var pending = new List<int>(Shuffled(n, rng));
+            stepCount = 0;
+            while (true)
+            {
+                pending.RemoveAll(x => cellOf[x] == x);
+                if (pending.Count == 0) break;
+                int pick = 0;
+                for (int k = 0; k < pending.Count; k++)
+                {
+                    int c = pending[k];
+                    if (stepCount - lastTouched[c] >= rest && stepCount - lastTouched[tileAt[c]] >= rest) { pick = k; break; }
+                }
+                int i = pending[pick];
+                int from = cellOf[i], pushed = tileAt[i];
+                stepMover[stepCount] = i;
+                stepMoverFrom[stepCount] = from;
+                // The last swap of a cycle lands both tiles; the pushed one then needs no separate step.
+                stepPushed[stepCount] = pushed;
+                lastTouched[i] = lastTouched[pushed] = stepCount;
+                stepCount++;
+                cellOf[i] = i; tileAt[i] = i;
+                cellOf[pushed] = from; tileAt[from] = pushed;
+            }
+        }
+
+        /// <summary>When each tile reaches its home cell for good; tiles never leave home once there.</summary>
+        void PlanLandings()
         {
             int n = tiles.Count;
-            var perm = new int[n];
-            for (int i = 0; i < n; i++) perm[i] = i;
-            for (int i = n - 1; i > 0; i--)
+            for (int i = 0; i < n; i++) landAt[i] = startCell[i] == i ? 0f : float.MaxValue;
+            for (int k = 0; k < stepCount; k++)
             {
-                int j = rng.Next(i);
-                (perm[i], perm[j]) = (perm[j], perm[i]);
+                landAt[stepMover[k]] = stepStart[k] + FlightSec;
+                int p = stepPushed[k];
+                if (stepMoverFrom[k] == p) landAt[p] = stepStart[k] + FlightSec * 0.5f + SlideSec;
             }
-
-            Vector2 centre = boardRect.center;
-            float hx = cell.x * 0.5f, hy = cell.y * 0.5f;
-            for (int i = 0; i < n; i++)
-            {
-                Vector2 target = tiles.HomeOf(perm[i]) + new Vector2(
-                    ((float)rng.NextDouble() * 2f - 1f) * ScrambleJitter * cell.x,
-                    ((float)rng.NextDouble() * 2f - 1f) * ScrambleJitter * cell.y);
-                target = centre + (target - centre) * ScrambleSpread;
-                target.x = Mathf.Clamp(target.x, hx, width - hx);
-                target.y = Mathf.Clamp(target.y, height * BottomBand + hy, height * (1f - TopBand) - hy);
-                from[i] = target;
-            }
-
-            byStack = Shuffled(n, rng);
-            byStart = Shuffled(n, rng);
+            byLanding = new int[n];
+            for (int i = 0; i < n; i++) byLanding[i] = i;
+            Array.Sort(byLanding, (a, b) => landAt[a].CompareTo(landAt[b]));
         }
 
         static int[] Shuffled(int n, System.Random rng)

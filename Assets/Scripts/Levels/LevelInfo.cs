@@ -43,7 +43,8 @@ namespace Snaploop.Levels
     }
 
     /// <summary>
-    /// Default grid sizes when a level omits cols/rows: 9-16 pieces early, ramping to ~36.
+    /// Default grid sizes when a level omits cols/rows, by position in the pack: a sawtooth that climbs for four
+    /// levels and eases on every 5th, and follows a big grid with a smaller one, topping out at 6x8.
     /// Grids are portrait (rows >= cols) so pieces stay close to square on 9:16 clips.
     /// </summary>
     public static class DifficultyRamp
@@ -52,23 +53,32 @@ namespace Snaploop.Levels
         {
             new Vector2Int(3, 3),  // 9
             new Vector2Int(3, 4),  // 12
-            new Vector2Int(3, 5),  // 15
+            new Vector2Int(4, 4),  // 16
             new Vector2Int(4, 5),  // 20
+            new Vector2Int(3, 4),  // 12, breather
             new Vector2Int(4, 6),  // 24
-            new Vector2Int(4, 7),  // 28
-            new Vector2Int(5, 7),  // 35
-            new Vector2Int(4, 9),  // 36
+            new Vector2Int(5, 6),  // 30
+            new Vector2Int(6, 6),  // 36
+            new Vector2Int(5, 5),  // 25
+            new Vector2Int(4, 5),  // 20, breather
+            new Vector2Int(5, 6),  // 30
+            new Vector2Int(6, 7),  // 42
+            new Vector2Int(5, 5),  // 25
+            new Vector2Int(6, 8),  // 48
+            new Vector2Int(4, 5),  // 20, breather
         };
+
+        /// <summary>The last levels repeat from here, so long packs keep the late sawtooth.</summary>
+        const int LoopFrom = 10;
 
         public const int MinSide = 2;
         public const int MaxSide = 10;
 
-        /// <summary>Grid for the level at <paramref name="index"/> within its pack; ramps one step every 3 levels, then holds.</summary>
+        /// <summary>Grid for the level at <paramref name="index"/> within its pack.</summary>
         public static Vector2Int ForIndex(int index)
         {
-            int step = Mathf.Clamp(index / 3, 0, Steps.Length - 1);
-            if (index == 0) step = 0;
-            return Steps[step];
+            if (index < Steps.Length) return Steps[Mathf.Max(0, index)];
+            return Steps[LoopFrom + (index - Steps.Length) % (Steps.Length - LoopFrom)];
         }
     }
 }
