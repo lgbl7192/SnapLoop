@@ -87,7 +87,8 @@ namespace Snaploop.UI
         {
             float h = heightDp;
             var bg = UIFactory.RoundRect(name, parent, new Color(T.surfaceSunk.r, T.surfaceSunk.g, T.surfaceSunk.b, 0.85f), h * 0.5f);
-            UIFactory.Stroke("Hairline", bg.transform, T.strokeSoft, h * 0.5f);
+            var hairline = UIFactory.Stroke("Hairline", bg.transform, T.strokeSoft, h * 0.5f);
+            hairline.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             Root = bg.rectTransform;
             Root.sizeDelta = new Vector2(T.U(90f), T.U(h));
             var row = bg.gameObject.AddComponent<HorizontalLayoutGroup>();

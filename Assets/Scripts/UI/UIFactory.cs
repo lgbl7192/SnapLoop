@@ -491,7 +491,8 @@ namespace Snaploop.UI
             float heightDp = 30f, Color? fill = null)
         {
             var bg = RoundRect(name, parent, fill ?? new Color(T.surfaceSunk.r, T.surfaceSunk.g, T.surfaceSunk.b, 0.85f), heightDp * 0.5f);
-            Stroke("Hairline", bg.transform, T.strokeSoft, heightDp * 0.5f);
+            var hairline = Stroke("Hairline", bg.transform, T.strokeSoft, heightDp * 0.5f);
+            hairline.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             var rt = bg.rectTransform;
             rt.sizeDelta = new Vector2(0f, T.U(heightDp));
             var row = bg.gameObject.AddComponent<HorizontalLayoutGroup>();
