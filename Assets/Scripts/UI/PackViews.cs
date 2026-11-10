@@ -87,7 +87,8 @@ namespace Snaploop.UI
         {
             float h = heightDp;
             var bg = UIFactory.RoundRect(name, parent, new Color(T.surfaceSunk.r, T.surfaceSunk.g, T.surfaceSunk.b, 0.85f), h * 0.5f);
-            UIFactory.Stroke("Hairline", bg.transform, T.strokeSoft, h * 0.5f);
+            var hairline = UIFactory.Stroke("Hairline", bg.transform, T.strokeSoft, h * 0.5f);
+            hairline.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
             Root = bg.rectTransform;
             Root.sizeDelta = new Vector2(T.U(90f), T.U(h));
             var row = bg.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -110,15 +111,22 @@ namespace Snaploop.UI
 
         static UITheme T => UITheme.Current;
 
-        public void Refresh(bool animate)
+        /// <summary>The token glyph, e.g. as the target of a token flight.</summary>
+        public RectTransform Icon => icon;
+
+        public void Refresh(bool animate) => SetValue(Tokens.Balance, animate);
+
+        /// <summary>Shows <paramref name="amount"/> instead of the live balance (the win card counts claimed tokens in).</summary>
+        public void SetValue(int amount, bool animate)
         {
-            int balance = Tokens.Balance;
-            if (balance == value) return;
-            bool grew = value >= 0 && balance > value;
-            counter.Set(balance, animate && value >= 0);
-            value = balance;
-            if (grew && animate) UITween.Get(icon).Scale(1.35f, 1f).Play(0.4f, EaseType.OutElastic);
+            if (amount == value) return;
+            bool grew = value >= 0 && amount > value;
+            counter.Set(amount, animate && value >= 0);
+            value = amount;
+            if (grew && animate) Bump();
         }
+
+        public void Bump() => UITween.Get(icon).Scale(1.35f, 1f).Play(0.4f, EaseType.OutElastic);
     }
 
     /// <summary>One toast line above everything, shared by the hub, the pack screen and the preview.</summary>

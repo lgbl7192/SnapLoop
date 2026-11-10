@@ -50,21 +50,4 @@ namespace Snaploop.Monetization
             purchases.Buy(productId, "Thank you! " + title + " is unlocked.", onDone);
         }
     }
-
-    /// <summary>The win card's "Double tokens" rewarded offer: <see cref="AdGate.DoubleTokens"/> plus a loaded ad.</summary>
-    public sealed class DoubleTokensOffer : IDoubleTokensOffer
-    {
-        readonly AdsService ads;
-        readonly string placement;
-
-        public DoubleTokensOffer(AdsService ads, string placement)
-        {
-            this.ads = ads;
-            this.placement = placement;
-        }
-
-        public bool IsOffered(int tokensEarned, bool claimedThisWin) => ads.IsDoubleTokensReady(placement, tokensEarned, claimedThisWin);
-
-        public void Request(Action<bool> onResult) => ads.ShowRewarded(placement, onResult);
-    }
 }

@@ -37,6 +37,18 @@ namespace Snaploop.UI
         readonly float[] ringLife = new float[MaxRings];
         readonly float[] ringSize = new float[MaxRings];
 
+        const int MaxTokens = 14;
+        const float TokenFlightSec = 0.62f;
+        const float TokenStaggerSec = 0.055f;
+        readonly RectTransform[] tokenRts = new RectTransform[MaxTokens];
+        readonly Vector2[] tokenFrom = new Vector2[MaxTokens];
+        readonly Vector2[] tokenCtrl = new Vector2[MaxTokens];
+        readonly float[] tokenAge = new float[MaxTokens];
+        readonly bool[] tokenLive = new bool[MaxTokens];
+        Vector2 tokenTo;
+        int tokensInFlight;
+        System.Action onTokenArrived, onTokensDone;
+
         int next, nextRing, live;
 
         public static UIFx Create()
@@ -76,7 +88,94 @@ namespace Snaploop.UI
                 ringImgs[i] = img;
                 ringRts[i] = img.rectTransform;
             }
+            float tokenSize = UITheme.Current.U(30f);
+            for (int i = 0; i < MaxTokens; i++)
+            {
+                var tok = UIFactory.TokenIcon("Token", root, tokenSize);
+                tok.anchorMin = tok.anchorMax = new Vector2(0.5f, 0.5f);
+                tok.gameObject.SetActive(false);
+                tokenRts[i] = tok;
+            }
             enabled = false;
+        }
+
+        /// <summary>
+        /// Tokens spray out of <paramref name="fromScreen"/> and stream into <paramref name="toScreen"/> (screen pixels).
+        /// <paramref name="onEachArrive"/> runs as each one lands (tick a counter), <paramref name="onDone"/> after the last.
+        /// A new flight lands any flight still in the air first.
+        /// </summary>
+        public void FlyTokens(Vector2 fromScreen, Vector2 toScreen, int count, System.Action onEachArrive, System.Action onDone)
+        {
+            FinishTokens();
+            var t = UITheme.Current;
+            Vector2 from = ToLocal(fromScreen);
+            tokenTo = ToLocal(toScreen);
+            count = Mathf.Clamp(count, 1, MaxTokens);
+            onTokenArrived = onEachArrive;
+            onTokensDone = onDone;
+            tokensInFlight = count;
+            for (int i = 0; i < count; i++)
+            {
+                float ang = Random.Range(0f, Mathf.PI * 2f);
+                tokenFrom[i] = from + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * t.U(Random.Range(4f, 18f));
+                tokenCtrl[i] = from + new Vector2(Random.Range(-1f, 1f) * t.U(110f), t.U(Random.Range(70f, 150f)));
+                tokenAge[i] = -i * TokenStaggerSec;
+                tokenLive[i] = true;
+                tokenRts[i].anchoredPosition = tokenFrom[i];
+                tokenRts[i].localScale = Vector3.zero;
+                tokenRts[i].SetAsLastSibling();
+                tokenRts[i].gameObject.SetActive(true);
+            }
+            enabled = true;
+        }
+
+        /// <summary>Lands every token in flight at once (their callbacks still run).</summary>
+        public void FinishTokens()
+        {
+            if (tokensInFlight <= 0) return;
+            for (int i = 0; i < MaxTokens; i++)
+            {
+                if (!tokenLive[i]) continue;
+                tokenLive[i] = false;
+                tokenRts[i].gameObject.SetActive(false);
+                onTokenArrived?.Invoke();
+            }
+            EndTokenFlight();
+        }
+
+        void EndTokenFlight()
+        {
+            tokensInFlight = 0;
+            var done = onTokensDone;
+            onTokenArrived = onTokensDone = null;
+            done?.Invoke();
+        }
+
+        bool TickTokens(float dt)
+        {
+            if (tokensInFlight <= 0) return false;
+            for (int i = 0; i < MaxTokens; i++)
+            {
+                if (!tokenLive[i]) continue;
+                tokenAge[i] += dt;
+                float f = tokenAge[i] / TokenFlightSec;
+                if (f < 0f) continue;
+                if (f >= 1f)
+                {
+                    tokenLive[i] = false;
+                    tokenRts[i].gameObject.SetActive(false);
+                    tokensInFlight--;
+                    onTokenArrived?.Invoke();
+                    if (tokensInFlight <= 0) { EndTokenFlight(); return false; }
+                    continue;
+                }
+                float e = Ease.Apply(EaseType.InOutCubic, f);
+                float u = 1f - e;
+                tokenRts[i].anchoredPosition = u * u * tokenFrom[i] + 2f * u * e * tokenCtrl[i] + e * e * tokenTo;
+                float s = f < 0.18f ? Ease.Apply(EaseType.OutBack, f / 0.18f) : Mathf.Lerp(1f, 0.6f, (f - 0.18f) / 0.82f);
+                tokenRts[i].localScale = new Vector3(s, s, 1f);
+            }
+            return true;
         }
 
         Vector2 ToLocal(Vector2 screenPos)
@@ -233,6 +332,7 @@ namespace Snaploop.UI
                 var c = ringImgs[k].color; c.a = 1f - f; ringImgs[k].color = c;
             }
 
+            if (TickTokens(dt)) any = true;
             if (!any) enabled = false;
         }
 
@@ -241,6 +341,9 @@ namespace Snaploop.UI
         {
             for (int k = 0; k < MaxParticles; k++) { life[k] = 0f; imgs[k].gameObject.SetActive(false); }
             for (int k = 0; k < MaxRings; k++) { ringLife[k] = 0f; ringImgs[k].gameObject.SetActive(false); }
+            for (int k = 0; k < MaxTokens; k++) { tokenLive[k] = false; tokenRts[k].gameObject.SetActive(false); }
+            tokensInFlight = 0;
+            onTokenArrived = onTokensDone = null;
             live = 0;
             enabled = false;
         }

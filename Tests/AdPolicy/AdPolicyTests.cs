@@ -57,12 +57,14 @@ static class AdPolicyTests
         RageQuitTests();
         InterstitialGateTests();
         RewardedGateTests();
-        DoubleTokensGateTests();
+        ClaimTripleGateTests();
         BannerGateTests();
         SimulationTests();
         BackoffTests();
         ShowHandleTests();
         TokenRulesTests();
+        HintRulesTests();
+        AlbumRulesTests();
         Console.WriteLine();
         Console.WriteLine(passes + " passed, " + failures + " failed");
         return failures == 0 ? 0 : 1;
@@ -314,75 +316,75 @@ static class AdPolicyTests
         Eq(AdBlock.NotLoaded, AdGate.Rewarded(c), "rewarded offer hidden while nothing is loaded");
     }
 
-    static void DoubleTokensGateTests()
+    static void ClaimTripleGateTests()
     {
-        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(Veteran()), 8, false), "double tokens: offered after a win that paid tokens");
+        Eq(AdBlock.None, AdGate.ClaimTriple(Ctx(Veteran()), 8, false), "claim x3: offered after a win that paid tokens");
 
         var f = new AdLedger();
         f.StartSession(T0, Day0, 24);
-        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(f), 5, false), "double tokens: available from the first session");
+        Eq(AdBlock.None, AdGate.ClaimTriple(Ctx(f), 5, false), "claim x3: available from the first session");
 
         var c = Ctx(Veteran());
         c.RemoveAdsOwned = true;
-        Eq(AdBlock.None, AdGate.DoubleTokens(c, 8, false), "double tokens: still offered after Remove Ads");
+        Eq(AdBlock.None, AdGate.ClaimTriple(c, 8, false), "claim x3: still offered after Remove Ads");
 
-        Eq(AdBlock.NothingToDouble, AdGate.DoubleTokens(Ctx(Veteran()), 0, false), "double tokens: hidden when the win paid nothing");
-        Eq(AdBlock.AlreadyClaimed, AdGate.DoubleTokens(Ctx(Veteran()), 8, true), "double tokens: once per win");
+        Eq(AdBlock.NothingToClaim, AdGate.ClaimTriple(Ctx(Veteran()), 0, false), "claim x3: hidden when the win paid nothing");
+        Eq(AdBlock.AlreadyClaimed, AdGate.ClaimTriple(Ctx(Veteran()), 8, true), "claim x3: once per win");
 
-        Eq(AdBlock.KillSwitch, AdGate.DoubleTokens(Ctx(Veteran(), new AdRules { doubleTokensEnabled = false }), 8, false), "double tokens: own kill switch");
-        Eq(AdBlock.KillSwitch, AdGate.DoubleTokens(Ctx(Veteran(), new AdRules { rewardedEnabled = false }), 8, false), "double tokens: rewarded kill switch also hides it");
+        Eq(AdBlock.KillSwitch, AdGate.ClaimTriple(Ctx(Veteran(), new AdRules { claimTripleEnabled = false }), 8, false), "claim x3: own kill switch");
+        Eq(AdBlock.KillSwitch, AdGate.ClaimTriple(Ctx(Veteran(), new AdRules { rewardedEnabled = false }), 8, false), "claim x3: rewarded kill switch also hides it");
         c = Ctx(Veteran());
         c.ConsentAllowsAds = false;
-        Eq(AdBlock.Consent, AdGate.DoubleTokens(c, 8, false), "double tokens: waits for consent");
+        Eq(AdBlock.Consent, AdGate.ClaimTriple(c, 8, false), "claim x3: waits for consent");
         c = Ctx(Veteran());
         c.AdLoaded = false;
-        Eq(AdBlock.NotLoaded, AdGate.DoubleTokens(c, 8, false), "double tokens: hidden while nothing is loaded");
+        Eq(AdBlock.NotLoaded, AdGate.ClaimTriple(c, 8, false), "claim x3: hidden while nothing is loaded");
 
-        // One ledger for every rewarded placement: hints and double tokens draw on the same caps.
+        // One ledger for every rewarded placement: hints and claim x3 draw on the same caps.
         var shared = Veteran();
         for (int i = 0; i < 7; i++) shared.RecordRewardedShown(T0 - 1000 + i, Day0);
-        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(shared), 8, false), "double tokens: 7 hint ads this session leave one slot");
+        Eq(AdBlock.None, AdGate.ClaimTriple(Ctx(shared), 8, false), "claim x3: 7 hint ads this session leave one slot");
         shared.RecordRewardedShown(T0 - 500, Day0);
-        Eq(AdBlock.SessionCap, AdGate.DoubleTokens(Ctx(shared), 8, false), "double tokens: hint ads count toward the session cap of 8");
-        Eq(AdBlock.SessionCap, AdGate.Rewarded(Ctx(shared)), "a double-tokens ad counts toward the hint cap the same way");
+        Eq(AdBlock.SessionCap, AdGate.ClaimTriple(Ctx(shared), 8, false), "claim x3: hint ads count toward the session cap of 8");
+        Eq(AdBlock.SessionCap, AdGate.Rewarded(Ctx(shared)), "a claim-x3 ad counts toward the hint cap the same way");
 
         var daily = Veteran();
         daily.dailyRewarded = 19;
         daily.sessionRewarded = 0;
-        Eq(AdBlock.None, AdGate.DoubleTokens(Ctx(daily), 8, false), "double tokens: 19 rewarded today leaves one");
+        Eq(AdBlock.None, AdGate.ClaimTriple(Ctx(daily), 8, false), "claim x3: 19 rewarded today leaves one");
         daily.RecordRewardedShown(T0 - 10, Day0);
-        Eq(AdBlock.DailyCap, AdGate.DoubleTokens(Ctx(daily), 8, false), "double tokens: shares the daily cap of 20");
-        Eq(AdBlock.DailyCap, AdGate.Rewarded(Ctx(daily)), "hints see the double-tokens ad in the daily cap");
+        Eq(AdBlock.DailyCap, AdGate.ClaimTriple(Ctx(daily), 8, false), "claim x3: shares the daily cap of 20");
+        Eq(AdBlock.DailyCap, AdGate.Rewarded(Ctx(daily)), "hints see the claim-x3 ad in the daily cap");
 
-        // The rewarded/interstitial spacing: watching double tokens on the win card holds back the interstitial on Next.
+        // The rewarded/interstitial spacing: watching claim x3 on the win card holds back the interstitial on Next.
         var spacing = Veteran();
         spacing.RecordRewardedShown(T0, Day0);
-        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 5)), "Next right after double tokens: no interstitial");
-        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 89)), "89 s after double tokens: still no interstitial");
-        Eq(AdBlock.None, AdGate.Interstitial(Ctx(spacing, null, T0 + 90)), "90 s after double tokens: interstitials allowed again");
+        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 5)), "Next right after claim x3: no interstitial");
+        Eq(AdBlock.RewardedCooldown, AdGate.Interstitial(Ctx(spacing, null, T0 + 89)), "89 s after claim x3: still no interstitial");
+        Eq(AdBlock.None, AdGate.Interstitial(Ctx(spacing, null, T0 + 90)), "90 s after claim x3: interstitials allowed again");
 
-        var stricter = AdRuleSpecs.Restrict(new AdRules(), s => s.Key == "ads_rewarded_double_tokens_enabled" ? 0 : (double?)null);
-        Check(!stricter.doubleTokensEnabled && stricter.rewardedEnabled, "remote can switch off double tokens alone");
+        var stricter = AdRuleSpecs.Restrict(new AdRules(), s => s.Key == "ads_rewarded_claim_triple_enabled" ? 0 : (double?)null);
+        Check(!stricter.claimTripleEnabled && stricter.rewardedEnabled, "remote can switch off claim x3 alone");
         var rejected = new List<string>();
-        var looser = AdRuleSpecs.Restrict(new AdRules { doubleTokensEnabled = false },
-            s => s.Key == "ads_rewarded_double_tokens_enabled" ? 1 : (double?)null, (k, v, why) => rejected.Add(k));
-        Check(!looser.doubleTokensEnabled && rejected.Contains("ads_rewarded_double_tokens_enabled"), "remote cannot turn double tokens back on");
+        var looser = AdRuleSpecs.Restrict(new AdRules { claimTripleEnabled = false },
+            s => s.Key == "ads_rewarded_claim_triple_enabled" ? 1 : (double?)null, (k, v, why) => rejected.Add(k));
+        Check(!looser.claimTripleEnabled && rejected.Contains("ads_rewarded_claim_triple_enabled"), "remote cannot turn claim x3 back on");
 
         // A player who chains wins and always takes the offer: never more than the shared caps, never an interstitial within 90 s of one.
         var r = new AdRules();
         var l = Veteran();
         l.sessionRewarded = 0;
         long now = T0;
-        int doubles = 0, inters = 0;
+        int tripled = 0, inters = 0;
         bool spacingViolated = false;
         for (int win = 0; win < 30; win++)
         {
             now += 45;
             l.RecordLevelEnd(true);
-            if (AdGate.DoubleTokens(Ctx(l, r, now), 8, false) == AdBlock.None)
+            if (AdGate.ClaimTriple(Ctx(l, r, now), 8, false) == AdBlock.None)
             {
                 l.RecordRewardedShown(now, Day0);
-                doubles++;
+                tripled++;
                 now += 30;
             }
             if (AdGate.Interstitial(Ctx(l, r, now)) == AdBlock.None)
@@ -394,9 +396,9 @@ static class AdPolicyTests
                 inters++;
             }
         }
-        Eq(8, doubles, "simulation: a session of wins gets at most 8 double-tokens ads");
-        Check(!spacingViolated, "simulation: no interstitial within 90 s of a double-tokens ad");
-        Console.WriteLine("     (double-tokens simulation: " + doubles + " rewarded, " + inters + " interstitials over 30 wins)");
+        Eq(8, tripled, "simulation: a session of wins gets at most 8 claim-x3 ads");
+        Check(!spacingViolated, "simulation: no interstitial within 90 s of a claim-x3 ad");
+        Console.WriteLine("     (claim-x3 simulation: " + tripled + " rewarded, " + inters + " interstitials over 30 wins)");
     }
 
     static void BannerGateTests()
@@ -474,7 +476,7 @@ static class AdPolicyTests
     {
         bool Near(double a, double b) => Math.Abs(a - b) < 1e-9;
         Check(Near(AdBackoff.DelaySeconds(1, 0.5), 4), "backoff: first retry 4 s");
-        Check(Near(AdBackoff.DelaySeconds(2, 0.5), 8), "backoff: doubles");
+        Check(Near(AdBackoff.DelaySeconds(2, 0.5), 8), "backoff: tripled");
         Check(Near(AdBackoff.DelaySeconds(6, 0.5), 128), "backoff: 6th failure 128 s");
         Check(Near(AdBackoff.DelaySeconds(7, 0.5), 180), "backoff: capped at 3 min");
         Check(Near(AdBackoff.DelaySeconds(1000, 0.5), 180), "backoff: huge failure counts stay capped");
@@ -521,8 +523,10 @@ static class AdPolicyTests
         Eq(0, TokenRules.ForClear(3, 1), "tokens: replay at fewer stars pays nothing");
         int total = TokenRules.ForClear(0, 1) + TokenRules.ForClear(1, 2) + TokenRules.ForClear(2, 3);
         Eq(10, total, "tokens: 1 then 2 then 3 stars adds up to the 3-star payout");
-        Eq(16, 8 + TokenRules.DoubledBonus(8), "tokens: doubling an 8-token clear gives 16");
-        Eq(0, TokenRules.DoubledBonus(0), "tokens: doubling nothing gives nothing");
+        Eq(24, 8 + TokenRules.TripleBonus(8), "claim x3: an 8-token clear pays 24 in total");
+        Eq(20, TokenRules.TripleBonus(10), "claim x3: adds twice the clear on top of the plain claim");
+        Eq(0, TokenRules.TripleBonus(0), "claim x3: tripling nothing gives nothing");
+        Eq(0, TokenRules.TripleBonus(-4), "claim x3: never negative");
 
         Check(Math.Abs(TokenRules.UnlockProgress(75, 150) - 0.5f) < 1e-6, "unlock progress: halfway");
         Eq(1f, TokenRules.UnlockProgress(400, 150), "unlock progress: capped at 1");
@@ -532,5 +536,66 @@ static class AdPolicyTests
         Check(PackRules.IsFeatured(new[] { 11, 12 }, 12) && PackRules.IsFeatured(new[] { 11, 12 }, 11), "seasonal: featured in its months");
         Check(!PackRules.IsFeatured(new[] { 11, 12 }, 1), "seasonal: not featured outside them");
         Check(!PackRules.IsFeatured(null, 12) && !PackRules.IsFeatured(new int[0], 12), "seasonal: no months means never featured");
+    }
+
+    // ------------------------------------------------------------ hints
+
+    static void HintRulesTests()
+    {
+        int cost = HintRules.TokenCost;
+        Eq(HintPayment.Tokens, HintRules.Choose(cost, cost, true), "hint: enough tokens pays with tokens, even with an ad ready");
+        Eq(HintPayment.Tokens, HintRules.Choose(400, cost, false), "hint: tokens need no ad network");
+        Eq(HintPayment.RewardedAd, HintRules.Choose(cost - 1, cost, true), "hint: one token short falls back to the rewarded ad");
+        Eq(HintPayment.None, HintRules.Choose(cost - 1, cost, false), "hint: short and no ad ready: not offered (hidden)");
+        Eq(HintPayment.None, HintRules.Choose(0, cost, false), "hint: no tokens and no ads: not offered");
+        Eq(HintPayment.Tokens, HintRules.Choose(0, 0, false), "hint: a free price never needs tokens or ads");
+
+        Check(cost > TokenRules.ThreeStars && cost <= 2 * TokenRules.ThreeStars, "hint: costs more than one clear and at most two 3-star clears");
+        Check(cost * 10 > 150 / 2, "hint: ten hints cost more than half a 150-token pack");
+
+        // Remove Ads owners keep the ad option: the rewarded gate ignores the purchase.
+        var c = Ctx(Veteran());
+        c.RemoveAdsOwned = true;
+        bool adReady = AdGate.Rewarded(c) == AdBlock.None;
+        Eq(HintPayment.RewardedAd, HintRules.Choose(0, cost, adReady), "hint: Remove Ads owners who are short still get the rewarded ad");
+        c.AdLoaded = false;
+        Eq(HintPayment.None, HintRules.Choose(0, cost, AdGate.Rewarded(c) == AdBlock.None), "hint: no ad loaded and short: hidden");
+        var capped = Veteran(); capped.sessionRewarded = 8;
+        Eq(HintPayment.Tokens, HintRules.Choose(cost, cost, AdGate.Rewarded(Ctx(capped)) == AdBlock.None), "hint: rewarded cap reached, tokens still work");
+        Eq(HintPayment.None, HintRules.Choose(cost - 1, cost, AdGate.Rewarded(Ctx(capped)) == AdBlock.None), "hint: rewarded cap reached and short: hidden");
+    }
+
+    // ------------------------------------------------------------ album
+
+    static void AlbumRulesTests()
+    {
+        int n = AlbumRules.SlotsPerPage;
+        Eq(12, n, "album: 12 slots per page");
+        Eq(0, AlbumRules.CurrentPage(0), "album: empty album is on page 1");
+        Eq(0, AlbumRules.CurrentPage(n - 1), "album: 11 filled is still page 1");
+        Eq(1, AlbumRules.CurrentPage(n), "album: a full page moves on to page 2");
+        Eq(7, AlbumRules.FilledOnPage(7, 0), "album: 7 filled shows 7 on page 1");
+        Eq(n, AlbumRules.FilledOnPage(n + 3, 0), "album: earlier pages read full");
+        Eq(3, AlbumRules.FilledOnPage(n + 3, 1), "album: the current page counts only its own slots");
+        Eq(0, AlbumRules.FilledOnPage(3, 2), "album: later pages read empty");
+
+        Eq(0, AlbumRules.BonusesOwed(n - 1, 0), "album: no bonus before the page is full");
+        Eq(1, AlbumRules.BonusesOwed(n, 0), "album: a full page owes its bonus");
+        Eq(0, AlbumRules.BonusesOwed(n, 1), "album: a paid page is never paid again");
+        Eq(1, AlbumRules.BonusesOwed(2 * n, 1), "album: the second page owes one more");
+        Eq(0, AlbumRules.BonusesOwed(n, 5), "album: more paid than completed owes nothing");
+
+        // Walk 70 first clears (30 starter + 4 packs of 10) the way Album.RecordClear does.
+        int paid = 0, bonusTokens = 0, clearTokens = 0;
+        for (int filled = 1; filled <= 70; filled++)
+        {
+            clearTokens += TokenRules.ThreeStars;
+            int owed = AlbumRules.BonusesOwed(filled, paid);
+            paid += owed;
+            bonusTokens += owed * AlbumRules.PageBonus;
+        }
+        Eq(5, paid, "album: 70 clears finish 5 pages");
+        Check(bonusTokens == 150, "album: page bonuses over the launch content add up to one pack (" + bonusTokens + ")");
+        Check(bonusTokens * 4 <= clearTokens, "album: page bonuses stay a small share of clear tokens");
     }
 }

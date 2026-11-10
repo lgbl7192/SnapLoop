@@ -17,7 +17,7 @@ namespace Snaploop.Core
         public bool ForcedByDevMenu;
         /// <summary>Best stars on this level before this clear (0 = first clear).</summary>
         public int PreviousBest;
-        /// <summary>Tokens this clear added to the wallet (before any "Double tokens" bonus).</summary>
+        /// <summary>Tokens this clear added to the wallet (before any Claim x3 bonus).</summary>
         public int TokensEarned;
     }
 
