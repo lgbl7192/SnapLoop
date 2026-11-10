@@ -67,7 +67,7 @@ Progress is stored per level `id`, so you can reorder levels without losing star
 
 ## Theme packs and tokens
 
-Puzzles come in theme packs. The 30 original levels are the free **Starter** pack. **Sea Life**, **Animals**, **Space** and **Christmas** are listed in `packs.json` and are planned at 10 clips each, on a sawtooth from 12 to 48 pieces (3x4, 4x4, 4x5, 5x6, 4x4, 5x6, 6x6, 5x5, 6x7, 6x8). Until their clips land they show as **Coming soon**. A locked pack opens with tokens the player earns or with a one-time purchase.
+Puzzles come in theme packs. The 30 original levels are the free **Starter** pack. **Sea Life**, **Animals**, **Space** and **Christmas** are listed in `packs.json` and are planned at 10 clips each, on a sawtooth from 12 to 48 pieces (3x4, 4x4, 4x5, 5x5, 4x4, 5x6, 6x6, 5x5, 6x7, 6x8). Until their clips land they show as **Coming soon**. A locked pack opens with tokens the player earns or with a one-time purchase.
 
 **Hub and pack screen:**
 
