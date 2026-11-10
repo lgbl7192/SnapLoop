@@ -1,0 +1,251 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Build variant
+        type: choice
+        options: [debug, release]
+        default: debug
+      format:
+        description: Package format (AAB is what Google Play wants)
+        type: choice
+        options: [apk, aab]
+        default: apk
+
+# Per branch, a newer push replaces a run that is still waiting to start, so the latest commit always
+# builds. Manual runs get their own group and are never replaced. Running builds are never cancelled:
+# killing Unity mid-build can leave the seat activated.
+concurrency:
+  group: android-build-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'auto' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  BUILD_VARIANT: ${{ inputs.variant || 'debug' }}
+  BUILD_FORMAT: ${{ inputs.format || 'apk' }}
+  # Marketing version prefix; the patch number and Android versionCode come from the run number.
+  APP_VERSION_PREFIX: '0.1'
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: ProjectSettings
+          lfs: false
+
+      - name: Check Unity project and secrets
+        id: check
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          VARS_WITH_SECRET_NAMES: >-
+            ${{ vars.UNITY_EMAIL != '' && 'UNITY_EMAIL' || '' }}
+            ${{ vars.UNITY_PASSWORD != '' && 'UNITY_PASSWORD' || '' }}
+            ${{ vars.UNITY_LICENSE != '' && 'UNITY_LICENSE' || '' }}
+        run: |
+          ready=true
+          level=warning
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && level=error
+
+          if [ ! -f ProjectSettings/ProjectVersion.txt ]; then
+            echo "::$level::No Unity project found (ProjectSettings/ProjectVersion.txt is missing). Skipping the Android build."
+            ready=false
+          else
+            echo "Unity version: $(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -n "${VARS_WITH_SECRET_NAMES// /}" ]; then
+            echo "::error::Found Actions *variables* named: ${VARS_WITH_SECRET_NAMES}. These must be repository *secrets* instead (Settings > Secrets and variables > Actions > Secrets tab). Delete the variables and re-add them as secrets."
+          fi
+
+          if [ -z "$UNITY_EMAIL" ] || [ -z "$UNITY_PASSWORD" ]; then
+            echo "::$level::Secrets UNITY_EMAIL and UNITY_PASSWORD are not available (not set yet, or this is a pull request from a fork). Skipping the Android build. See docs/BUILD.md."
+            ready=false
+          fi
+
+          {
+            echo "Secret UNITY_EMAIL: $([ -n "$UNITY_EMAIL" ] && echo set || echo 'not set')"
+            echo ""
+            echo "Secret UNITY_PASSWORD: $([ -n "$UNITY_PASSWORD" ] && echo set || echo 'not set')"
+            echo ""
+            echo "Unity license file secret (UNITY_LICENSE): $([ -n "$UNITY_LICENSE" ] && echo set || echo 'not set, using account activation')"
+            echo ""
+            echo "Release keystore secret (ANDROID_KEYSTORE_BASE64): $([ -n "$ANDROID_KEYSTORE_BASE64" ] && echo set || echo 'not set, release builds use the debug keystore')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" != true ] && [ "$level" = error ]; then exit 1; fi
+
+  build:
+    name: Build Android
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    # Up to SEAT_WAIT_MINUTES in the seat queue plus the build itself.
+    timeout-minutes: 240
+    steps:
+      # The Unity Android image is large; the default runner disk is too small without this.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v2.0.0
+
+      - uses: actions/checkout@v7
+        with:
+          lfs: false
+
+      # Cache LFS objects so the clips don't count against the LFS bandwidth quota on every run.
+      - name: List LFS objects
+        id: lfs
+        run: echo "hash=$(git lfs ls-files --long | sort | sha256sum | cut -c1-64)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore LFS cache
+        uses: actions/cache@v6
+        with:
+          path: .git/lfs
+          key: lfs-${{ steps.lfs.outputs.hash }}
+
+      - name: Git LFS pull
+        run: git lfs pull
+
+      - name: Restore Library cache
+        uses: actions/cache@v6
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-Android-
+
+      - name: Compute version
+        id: version
+        run: |
+          echo "version=${APP_VERSION_PREFIX}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # The Unity Personal seat is shared by every Unity job in the repo, so they take turns in the order
+      # they started; nobody is cancelled. GitHub concurrency groups can't do this: they keep only one
+      # waiting job and cancel the rest. Keep this step's env and script identical in android-build.yml and
+      # ui-screenshots.yml; the job and step names below must cover every job that runs Unity.
+      - name: Wait for the Unity seat
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEAT_WAIT_MINUTES: 150
+          SEAT_DEFS: |
+            def seat_job: .status == "in_progress" and (.name == "Build Android" or .name == "Capture UI screenshots");
+            def seat_step: .name == "Build with Unity" or .name == "Build Linux player";
+          # This job: matched by runner name, else the run's only in-progress Unity job.
+          SEAT_SELF: |
+            [.jobs[] | select(.runner_name == env.RUNNER_NAME)] as $mine
+            | (if ($mine | length) == 1 then $mine else [.jobs[] | select(seat_job)] end)
+            | select(length == 1) | .[0] | "\(.started_at) \(.id)"
+          # Unity jobs that started before this one and haven't finished their Unity step.
+          SEAT_HOLDERS: |
+            .jobs[]
+            | select(seat_job and .id != (env.MY_ID | tonumber))
+            | select(.started_at < env.MY_START or (.started_at == env.MY_START and .id < (env.MY_ID | tonumber)))
+            | select(any(.steps[]?; seat_step and .status == "completed") | not)
+            | "\(.name): \(.html_url)"
+        run: |
+          api() { gh api -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
+          for _ in 1 2 3 4 5 6; do
+            me=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+              --jq "$SEAT_DEFS $SEAT_SELF") && [ -n "$me" ] && break
+            sleep 10
+          done
+          [ -n "${me:-}" ] || { echo "::error::Could not look up this job through the Actions API."; exit 1; }
+          read -r MY_START MY_ID <<< "$me"
+          export MY_START MY_ID
+
+          start=$(date +%s)
+          deadline=$(( start + SEAT_WAIT_MINUTES * 60 ))
+          while :; do
+            ahead="" ok=true
+            # Only runs that started before this job can contain a job that did.
+            if runs=$(api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" \
+                --jq ".workflow_runs[] | select(.run_started_at <= \"$MY_START\") | \"\(.id) \(.run_attempt)\""); then
+              while read -r run attempt; do
+                [ -n "$run" ] || continue
+                holders=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run/attempts/$attempt/jobs?per_page=100" --jq "$SEAT_DEFS $SEAT_HOLDERS") \
+                  || { ok=false; break; }
+                if [ -n "$holders" ]; then ahead+="$holders"$'\n'; fi
+              done <<< "$runs"
+            else
+              ok=false
+            fi
+
+            if $ok && [ -z "$ahead" ]; then break; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Gave up after waiting ${SEAT_WAIT_MINUTES} minutes for the Unity seat. Still ahead:"
+              printf '%s' "$ahead"
+              exit 1
+            fi
+            if $ok; then
+              echo "$(date -u +%H:%M:%S) Waiting for the Unity seat, ahead of this job:"
+              printf '%s' "$ahead" | sed 's/^/  /'
+            else
+              echo "$(date -u +%H:%M:%S) Actions API call failed; treating the seat as taken and retrying."
+            fi
+            sleep 60
+          done
+
+          waited=$(( ($(date +%s) - start) / 60 ))
+          echo "Unity seat is free (waited ${waited} min)."
+          [ "$waited" -eq 0 ] || echo "Waited ${waited} min for the shared Unity seat." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build with Unity
+        id: unity
+        uses: game-ci/unity-builder@v6
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          # Optional. Leave unset to activate a Personal seat from the email/password above.
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          cliVersion: v0.1.72
+          targetPlatform: Android
+          buildMethod: Snaploop.Build.SnaploopBuild.BuildFromCommandLine
+          customParameters: -variant ${{ env.BUILD_VARIANT }}
+          buildName: Snaploop-${{ env.BUILD_VARIANT }}-${{ steps.version.outputs.version }}
+          versioning: Custom
+          version: ${{ steps.version.outputs.version }}
+          androidVersionCode: ${{ steps.version.outputs.code }}
+          androidExportType: ${{ env.BUILD_FORMAT == 'aab' && 'androidAppBundle' || 'androidPackage' }}
+          # Only release builds get the release keystore; debug builds always use Unity's debug keystore.
+          androidKeystoreName: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_BASE64 != '' && 'snaploop-release.keystore' || '' }}
+          androidKeystoreBase64: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          androidKeystorePass: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYSTORE_PASS || '' }}
+          androidKeyaliasName: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYALIAS_NAME || '' }}
+          androidKeyaliasPass: ${{ env.BUILD_VARIANT == 'release' && secrets.ANDROID_KEYALIAS_PASS || '' }}
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: Snaploop-${{ env.BUILD_VARIANT }}-${{ env.BUILD_FORMAT }}-${{ steps.version.outputs.version }}
+          path: build/Android/*.${{ env.BUILD_FORMAT }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "### Snaploop ${BUILD_VARIANT} ${BUILD_FORMAT^^} ${{ steps.version.outputs.version }}"
+            echo ""
+            echo "Download it from the **Artifacts** section of this run's summary page."
+            echo ""
+            du -h build/Android/*."${BUILD_FORMAT}" | sed 's/^/    /'
+          } >> "$GITHUB_STEP_SUMMARY"
